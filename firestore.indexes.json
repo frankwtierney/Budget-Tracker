@@ -1,0 +1,47 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "eventId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "reconciliationCycleId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "reconciliationStatus", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

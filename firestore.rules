@@ -1,0 +1,96 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Helper: get the user's role on a building
+    function buildingRole(buildingId) {
+      return get(/databases/$(database)/documents/buildings/$(buildingId)).data.roles[request.auth.uid];
+    }
+
+    function isBuildingMember(buildingId) {
+      return isAuth() && buildingRole(buildingId) in ['admin', 'member', 'viewer'];
+    }
+
+    function isBuildingEditor(buildingId) {
+      return isAuth() && buildingRole(buildingId) in ['admin', 'member'];
+    }
+
+    function isBuildingAdmin(buildingId) {
+      return isAuth() && buildingRole(buildingId) == 'admin';
+    }
+
+    // Users collection
+    match /users/{uid} {
+      allow read, write: if isAuth() && request.auth.uid == uid;
+    }
+
+    // Buildings
+    match /buildings/{buildingId} {
+      allow read: if isBuildingMember(buildingId);
+      allow create: if isAuth();
+      allow update: if isBuildingAdmin(buildingId);
+      allow delete: if false;
+
+      // Fiscal years
+      match /fiscalYears/{fyId} {
+        allow read: if isBuildingMember(buildingId);
+        allow write: if isBuildingAdmin(buildingId);
+      }
+
+      // Categories
+      match /categories/{categoryId} {
+        allow read: if isBuildingMember(buildingId);
+        allow write: if isBuildingAdmin(buildingId);
+      }
+
+      // Staff members
+      match /staffMembers/{staffId} {
+        allow read: if isBuildingMember(buildingId);
+        allow write: if isBuildingAdmin(buildingId);
+      }
+
+      // Vendors
+      match /vendors/{vendorId} {
+        allow read: if isBuildingMember(buildingId);
+        allow create: if isBuildingEditor(buildingId);
+        allow update: if isBuildingEditor(buildingId);
+        allow delete: if false;
+      }
+
+      // Events
+      match /events/{eventId} {
+        allow read: if isBuildingMember(buildingId);
+        allow write: if isBuildingEditor(buildingId);
+      }
+
+      // Transactions
+      match /transactions/{txId} {
+        allow read: if isBuildingMember(buildingId);
+        allow create: if isBuildingEditor(buildingId);
+        // Only admins can void or edit; voided transactions are immutable
+        allow update: if isBuildingAdmin(buildingId)
+          && resource.data.voidedAt == null;
+        allow delete: if false;
+      }
+
+      // Reconciliation cycles
+      match /reconciliationCycles/{cycleId} {
+        allow read: if isBuildingMember(buildingId);
+        allow write: if isBuildingAdmin(buildingId);
+      }
+
+      // Audit log — client-side writes in Phase 1; locked to editors
+      match /auditLog/{logId} {
+        allow read: if isBuildingAdmin(buildingId);
+        allow create: if isBuildingEditor(buildingId);
+        allow update, delete: if false;
+      }
+    }
+  }
+}
