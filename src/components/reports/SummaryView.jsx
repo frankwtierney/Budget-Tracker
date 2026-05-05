@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
+import {
   subscribeToCollection,
   where,
   orderBy,
@@ -64,6 +73,14 @@ export default function SummaryView({ building, fiscalYear }) {
 
   const loading = loadingCats || loadingTx;
 
+  // Chart data: one bar group per umbrella category
+  const chartData = categories.map((cat) => {
+    const subs = cat.subCategories ?? [];
+    const allocation = subs.reduce((s, sub) => s + (sub.allocation ?? 0), 0);
+    const spent = subs.reduce((s, sub) => s + (spendMap[cat.id]?.[sub.id]?.annual ?? 0), 0);
+    return { name: cat.name, Allocation: allocation, Spent: spent };
+  });
+
   return (
     <div className="space-y-4">
       <div>
@@ -79,7 +96,49 @@ export default function SummaryView({ building, fiscalYear }) {
           <p className="text-sm mt-1">Go to Admin → Categories to add umbrella categories.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <>
+          {chartData.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
+                Allocation vs. Spent by Category
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 12, fill: '#6b7280' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={48}
+                  />
+                  <Tooltip
+                    formatter={(value, name) => [formatCurrency(value), name]}
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 6,
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+                    }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    iconType="square"
+                    iconSize={10}
+                  />
+                  <Bar dataKey="Allocation" fill="#bfdbfe" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Spent" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -206,6 +265,7 @@ export default function SummaryView({ building, fiscalYear }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -12,6 +12,7 @@ import { formatCurrency, formatDate } from '../../lib/format';
 import Button from '../shared/Button';
 import Modal from '../shared/Modal';
 import Input from '../shared/Input';
+import EditExpenseModal from '../expense/EditExpenseModal';
 
 export default function TransactionsView({ building, fiscalYear }) {
   const { user } = useAuth();
@@ -21,6 +22,7 @@ export default function TransactionsView({ building, fiscalYear }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [voidModal, setVoidModal] = useState(null);
+  const [editModal, setEditModal] = useState(null);
   const [filters, setFilters] = useState({ search: '', categoryId: '', staffId: '' });
 
   useEffect(() => {
@@ -176,12 +178,20 @@ export default function TransactionsView({ building, fiscalYear }) {
                   {isAdmin && (
                     <td className="px-4 py-3 text-right">
                       {tx.reconciliationStatus !== 'voided' && (
-                        <button
-                          onClick={() => setVoidModal(tx)}
-                          className="text-xs text-red-500 hover:text-red-700 hover:underline"
-                        >
-                          Void
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => setEditModal(tx)}
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setVoidModal(tx)}
+                            className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                          >
+                            Void
+                          </button>
+                        </div>
                       )}
                     </td>
                   )}
@@ -191,6 +201,13 @@ export default function TransactionsView({ building, fiscalYear }) {
           </table>
         </div>
       )}
+
+      <EditExpenseModal
+        isOpen={editModal !== null}
+        onClose={() => setEditModal(null)}
+        transaction={editModal}
+        building={building}
+      />
 
       <VoidModal
         isOpen={voidModal !== null}
