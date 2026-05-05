@@ -1,14 +1,22 @@
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { Routes, Route, NavLink } from 'react-router-dom';
 import { useBuilding } from '../contexts/BuildingContext';
 import CategoryEditor from '../components/admin/CategoryEditor';
 import StaffRoster from '../components/admin/StaffRoster';
 import BuildingSettings from '../components/admin/BuildingSettings';
+import ReconciliationView from '../components/admin/ReconciliationView';
 
 const ADMIN_NAV = [
   { to: '/admin/categories', label: 'Categories' },
   { to: '/admin/staff', label: 'Staff Roster' },
+  { to: '/admin/reconciliation', label: 'Reconciliation' },
   { to: '/admin/settings', label: 'Building Settings' },
 ];
+
+function ReconciliationWrapper({ building }) {
+  const { fiscalYear } = useBuilding();
+  if (!fiscalYear) return <div className="text-gray-400">No active fiscal year.</div>;
+  return <ReconciliationView building={building} fiscalYear={fiscalYear} />;
+}
 
 export default function Admin() {
   const { building } = useBuilding();
@@ -45,6 +53,7 @@ export default function Admin() {
       <Routes>
         <Route path="categories" element={<CategoryEditor building={building} />} />
         <Route path="staff" element={<StaffRoster building={building} />} />
+        <Route path="reconciliation" element={<ReconciliationWrapper building={building} />} />
         <Route path="settings" element={<BuildingSettings building={building} />} />
         <Route index element={<CategoryEditor building={building} />} />
       </Routes>
