@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useRef } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
 import { useBuilding } from '../../contexts/BuildingContext';
 import { APP_NAME } from '../../config';
 import UserMenu from './UserMenu';
@@ -19,23 +18,43 @@ export default function AppShell({ onNewExpense }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-20 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-56 bg-white border-r border-gray-200">
-        <div className="h-16 flex items-center px-4 border-b border-gray-100">
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-30 w-56 bg-white border-r border-gray-200 flex flex-col
+          transform transition-transform duration-200 ease-in-out
+          md:static md:translate-x-0 md:z-auto
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        <div className="h-16 flex items-center px-4 border-b border-gray-100 flex-shrink-0">
           <span className="text-lg font-bold text-blue-600">{APP_NAME}</span>
         </div>
+
         {building && (
-          <div className="px-4 py-2 border-b border-gray-100">
+          <div className="px-4 py-2 border-b border-gray-100 flex-shrink-0">
             <p className="text-xs text-gray-400 uppercase tracking-wide">Building</p>
             <p className="text-sm font-medium text-gray-800 truncate">{building.name}</p>
           </div>
         )}
-        <nav className="flex-1 px-2 py-4 space-y-1">
+
+        <YearPicker />
+
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
@@ -51,14 +70,14 @@ export default function AppShell({ onNewExpense }) {
         </nav>
       </aside>
 
-      {/* Main content */}
+      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 flex-shrink-0">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden text-gray-500 hover:text-gray-700"
+              className="md:hidden text-gray-500 hover:text-gray-700 p-1"
               onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
             >
               <MenuIcon className="w-5 h-5" />
             </button>
@@ -73,20 +92,99 @@ export default function AppShell({ onNewExpense }) {
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <PlusIcon className="w-4 h-4" />
-              New Expense
+              <span className="hidden sm:inline">New Expense</span>
+              <span className="sm:hidden">+</span>
             </button>
             <UserMenu />
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 p-4 md:p-6">
+        <main className="flex-1 p-4 md:p-6 overflow-auto">
           <Outlet />
         </main>
       </div>
     </div>
   );
 }
+
+// ── Year picker ───────────────────────────────────────────────────────────────
+
+function YearPicker() {
+  const { fiscalYear, fiscalYears, viewingFiscalYearId, setViewingFiscalYearId, building } =
+    useBuilding();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  if (!fiscalYear || fiscalYears.length === 0) return null;
+
+  const isViewingActive =
+    !viewingFiscalYearId || viewingFiscalYearId === building?.activeFiscalYearId;
+
+  return (
+    <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0 relative" ref={ref}>
+      <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Fiscal Year</p>
+      <button
+        onClick={() => fiscalYears.length > 1 && setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between text-left rounded-md px-2 py-1 transition-colors ${
+          fiscalYears.length > 1 ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'
+        }`}
+      >
+        <span className="text-sm font-medium text-gray-800 truncate">{fiscalYear.label}</span>
+        <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+          {isViewingActive && (
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" title="Active year" />
+          )}
+          {!isViewingActive && (
+            <span className="text-xs text-amber-600 font-medium">history</span>
+          )}
+          {fiscalYears.length > 1 && (
+            <ChevronIcon className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          )}
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute left-2 right-2 top-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+          {fiscalYears.map((fy) => {
+            const isActive = fy.id === building?.activeFiscalYearId;
+            const isSelected =
+              fy.id === (viewingFiscalYearId ?? building?.activeFiscalYearId);
+            return (
+              <button
+                key={fy.id}
+                onClick={() => {
+                  setViewingFiscalYearId(fy.id);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 ${
+                  isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'
+                }`}
+              >
+                <span className="truncate">{fy.label}</span>
+                <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                  {isActive && (
+                    <span className="text-xs text-green-600 font-medium">active</span>
+                  )}
+                  {isSelected && <CheckIcon className="w-3.5 h-3.5 text-blue-600" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
 
 function ChartIcon({ className }) {
   return (
@@ -95,7 +193,6 @@ function ChartIcon({ className }) {
     </svg>
   );
 }
-
 function ListIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -103,7 +200,6 @@ function ListIcon({ className }) {
     </svg>
   );
 }
-
 function UsersIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -111,7 +207,6 @@ function UsersIcon({ className }) {
     </svg>
   );
 }
-
 function StoreIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -119,7 +214,6 @@ function StoreIcon({ className }) {
     </svg>
   );
 }
-
 function SettingsIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -128,7 +222,6 @@ function SettingsIcon({ className }) {
     </svg>
   );
 }
-
 function PlusIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -136,11 +229,24 @@ function PlusIcon({ className }) {
     </svg>
   );
 }
-
 function MenuIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+function ChevronIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+function CheckIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
     </svg>
   );
 }

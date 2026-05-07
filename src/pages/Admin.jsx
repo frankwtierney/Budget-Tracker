@@ -7,12 +7,14 @@ import StaffRoster from '../components/admin/StaffRoster';
 import BuildingSettings from '../components/admin/BuildingSettings';
 import ReconciliationView from '../components/admin/ReconciliationView';
 import CsvImport from '../components/admin/CsvImport';
+import FiscalYearsAdmin from '../components/admin/FiscalYearsAdmin';
 
 const ADMIN_NAV = [
   { to: '/admin/categories', label: 'Categories' },
   { to: '/admin/staff', label: 'Staff Roster' },
   { to: '/admin/reconciliation', label: 'Reconciliation' },
   { to: '/admin/import', label: 'Import CSV' },
+  { to: '/admin/fiscal-years', label: 'Fiscal Years' },
   { to: '/admin/settings', label: 'Building Settings' },
 ];
 
@@ -92,6 +94,7 @@ export default function Admin() {
         <Route path="staff" element={<StaffRoster building={building} />} />
         <Route path="reconciliation" element={<ReconciliationWrapper building={building} />} />
         <Route path="import" element={<CsvImportWrapper building={building} />} />
+        <Route path="fiscal-years" element={<FiscalYearsAdmin building={building} />} />
         <Route path="settings" element={<BuildingSettings building={building} />} />
         <Route index element={<CategoryEditor building={building} />} />
       </Routes>
