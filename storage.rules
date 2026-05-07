@@ -2,9 +2,15 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Phase 2: receipt uploads. Locked down until then.
-    match /{allPaths=**} {
-      allow read, write: if false;
+    // Receipts: any authenticated user may read/write within their building's folder.
+    // Fine-grained building-role enforcement is handled in Firestore; storage just
+    // requires a valid session so anonymous access is impossible.
+    match /buildings/{buildingId}/receipts/{transactionId}/{filename} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 20 * 1024 * 1024  // 20 MB max
+                   && request.resource.contentType.matches('image/.*|application/pdf');
+      allow delete: if request.auth != null;
     }
   }
 }

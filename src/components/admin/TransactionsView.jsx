@@ -13,6 +13,7 @@ import Button from '../shared/Button';
 import Modal from '../shared/Modal';
 import Input from '../shared/Input';
 import EditExpenseModal from '../expense/EditExpenseModal';
+import ReceiptUpload from '../expense/ReceiptUpload';
 
 export default function TransactionsView({ building, fiscalYear }) {
   const { user } = useAuth();
@@ -158,7 +159,8 @@ export default function TransactionsView({ building, fiscalYear }) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                {isAdmin && <th className="px-4 py-3 w-20" />}
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th>
+                {isAdmin && <th className="px-4 py-3 w-24" />}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
@@ -174,6 +176,19 @@ export default function TransactionsView({ building, fiscalYear }) {
                   <td className="px-4 py-3 text-right text-gray-800 font-medium">{formatCurrency(tx.cost)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={tx.reconciliationStatus} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {tx.reconciliationStatus !== 'voided' && (
+                      <ReceiptUpload
+                        compact
+                        buildingId={building.id}
+                        transactionId={tx.id}
+                        receiptUrl={tx.receiptUrl}
+                        onUploaded={(url) => {
+                          // Optimistic update handled by Firestore subscription
+                        }}
+                      />
+                    )}
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-3 text-right">

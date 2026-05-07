@@ -16,6 +16,7 @@ import Input from '../shared/Input';
 import VendorTypeahead from './VendorTypeahead';
 import CategorySelect from './CategorySelect';
 import StaffAllocations from './StaffAllocations';
+import ReceiptUpload from './ReceiptUpload';
 
 function dateInputValue(firestoreTimestamp) {
   const d = toDate(firestoreTimestamp);
@@ -320,6 +321,13 @@ export default function EditExpenseModal({ isOpen, onClose, transaction, buildin
             className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           />
         </div>
+
+        <ReceiptUpload
+          buildingId={building.id}
+          transactionId={transaction.id}
+          receiptUrl={transaction.receiptUrl}
+          onUploaded={() => {}}
+        />
 
         {error && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
