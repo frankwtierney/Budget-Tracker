@@ -1,12 +1,20 @@
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { Routes, Route, NavLink } from 'react-router-dom';
 import { useBuilding } from '../contexts/BuildingContext';
 import CategoryEditor from '../components/admin/CategoryEditor';
+import AllocationEditor from '../components/admin/AllocationEditor';
+import StrategyTypeEditor from '../components/admin/StrategyTypeEditor';
 import StaffRoster from '../components/admin/StaffRoster';
+import VendorList from '../components/admin/VendorList';
+import PaymentSourcesList from '../components/admin/PaymentSourcesList';
 import BuildingSettings from '../components/admin/BuildingSettings';
 
 const ADMIN_NAV = [
   { to: '/admin/categories', label: 'Categories' },
+  { to: '/admin/allocations', label: 'Allocations' },
+  { to: '/admin/strategies', label: 'Strategy Types' },
   { to: '/admin/staff', label: 'Staff Roster' },
+  { to: '/admin/vendors', label: 'Vendors' },
+  { to: '/admin/payment-sources', label: 'Payment Sources' },
   { to: '/admin/settings', label: 'Building Settings' },
 ];
 
@@ -43,10 +51,14 @@ export default function Admin() {
       </div>
 
       <Routes>
-        <Route path="categories" element={<CategoryEditor building={building} />} />
+        <Route path="categories" element={<CategoryEditor />} />
+        <Route path="allocations" element={<AllocationEditor building={building} />} />
+        <Route path="strategies" element={<StrategyTypeEditor />} />
         <Route path="staff" element={<StaffRoster building={building} />} />
+        <Route path="vendors" element={<VendorList building={building} />} />
+        <Route path="payment-sources" element={<PaymentSourcesList />} />
         <Route path="settings" element={<BuildingSettings building={building} />} />
-        <Route index element={<CategoryEditor building={building} />} />
+        <Route index element={<CategoryEditor />} />
       </Routes>
     </div>
   );

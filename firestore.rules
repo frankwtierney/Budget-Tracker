@@ -3,93 +3,258 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: check if user is authenticated
     function isAuth() {
       return request.auth != null;
     }
 
-    // Helper: get the user's role on a building
+    // ---- Department roles ----
+    function deptRole(deptId) {
+      return get(/databases/$(database)/documents/departments/$(deptId)).data.roles[request.auth.uid];
+    }
+    function isDeptMember(deptId) {
+      return isAuth() && deptRole(deptId) in ['admin', 'member', 'viewer'];
+    }
+    function isDeptEditor(deptId) {
+      return isAuth() && deptRole(deptId) in ['admin', 'member'];
+    }
+    function isDeptAdmin(deptId) {
+      return isAuth() && deptRole(deptId) == 'admin';
+    }
+
+    // ---- Area roles ----
+    function areaRole(areaId) {
+      return get(/databases/$(database)/documents/areas/$(areaId)).data.roles[request.auth.uid];
+    }
+    function areaDept(areaId) {
+      return get(/databases/$(database)/documents/areas/$(areaId)).data.departmentId;
+    }
+    function isAreaMember(areaId) {
+      return isAuth() && areaRole(areaId) in ['admin', 'member', 'viewer'];
+    }
+    function isAreaEditor(areaId) {
+      return isAuth() && areaRole(areaId) in ['admin', 'member'];
+    }
+    function isAreaAdmin(areaId) {
+      return isAuth() && areaRole(areaId) == 'admin';
+    }
+    // Effective area access: own role OR parent dept admin
+    function canReadArea(areaId) {
+      return isAreaMember(areaId) || isDeptMember(areaDept(areaId));
+    }
+    function canEditArea(areaId) {
+      return isAreaEditor(areaId) || isDeptEditor(areaDept(areaId));
+    }
+    function canAdminArea(areaId) {
+      return isAreaAdmin(areaId) || isDeptAdmin(areaDept(areaId));
+    }
+
+    // ---- Building roles ----
     function buildingRole(buildingId) {
       return get(/databases/$(database)/documents/buildings/$(buildingId)).data.roles[request.auth.uid];
     }
-
+    function buildingArea(buildingId) {
+      return get(/databases/$(database)/documents/buildings/$(buildingId)).data.areaId;
+    }
+    function buildingDept(buildingId) {
+      return get(/databases/$(database)/documents/buildings/$(buildingId)).data.departmentId;
+    }
     function isBuildingMember(buildingId) {
       return isAuth() && buildingRole(buildingId) in ['admin', 'member', 'viewer'];
     }
-
     function isBuildingEditor(buildingId) {
       return isAuth() && buildingRole(buildingId) in ['admin', 'member'];
     }
-
     function isBuildingAdmin(buildingId) {
       return isAuth() && buildingRole(buildingId) == 'admin';
     }
+    // Effective building access: own role OR parent area/dept role
+    function canReadBuilding(buildingId) {
+      return isBuildingMember(buildingId) ||
+             isAreaMember(buildingArea(buildingId)) ||
+             isDeptMember(buildingDept(buildingId));
+    }
+    function canEditBuilding(buildingId) {
+      return isBuildingEditor(buildingId) ||
+             isAreaEditor(buildingArea(buildingId)) ||
+             isDeptEditor(buildingDept(buildingId));
+    }
+    function canAdminBuilding(buildingId) {
+      return isBuildingAdmin(buildingId) ||
+             isAreaAdmin(buildingArea(buildingId)) ||
+             isDeptAdmin(buildingDept(buildingId));
+    }
 
-    // Users collection
+    // ---- Users ----
     match /users/{uid} {
       allow read, write: if isAuth() && request.auth.uid == uid;
     }
 
-    // Buildings
-    match /buildings/{buildingId} {
-      allow read: if isBuildingMember(buildingId);
+    // ---- Departments ----
+    match /departments/{deptId} {
+      allow read: if isDeptMember(deptId);
       allow create: if isAuth();
-      allow update: if isBuildingAdmin(buildingId);
+      allow update: if isDeptAdmin(deptId);
       allow delete: if false;
 
-      // Fiscal years
       match /fiscalYears/{fyId} {
-        allow read: if isBuildingMember(buildingId);
-        allow write: if isBuildingAdmin(buildingId);
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
       }
-
-      // Categories
-      match /categories/{categoryId} {
-        allow read: if isBuildingMember(buildingId);
-        allow write: if isBuildingAdmin(buildingId);
+      match /categories/{catId} {
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
       }
-
-      // Staff members
+      match /strategyTypes/{stId} {
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
+      }
+      match /paymentSources/{psId} {
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
+      }
       match /staffMembers/{staffId} {
-        allow read: if isBuildingMember(buildingId);
-        allow write: if isBuildingAdmin(buildingId);
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
       }
-
-      // Vendors
       match /vendors/{vendorId} {
-        allow read: if isBuildingMember(buildingId);
-        allow create: if isBuildingEditor(buildingId);
-        allow update: if isBuildingEditor(buildingId);
+        allow read: if isDeptMember(deptId);
+        allow create, update: if isDeptEditor(deptId);
         allow delete: if false;
       }
-
-      // Events
       match /events/{eventId} {
-        allow read: if isBuildingMember(buildingId);
-        allow write: if isBuildingEditor(buildingId);
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptEditor(deptId);
       }
-
-      // Transactions
       match /transactions/{txId} {
-        allow read: if isBuildingMember(buildingId);
-        allow create: if isBuildingEditor(buildingId);
-        // Only admins can void or edit; voided transactions are immutable
-        allow update: if isBuildingAdmin(buildingId)
-          && resource.data.voidedAt == null;
+        allow read: if isDeptMember(deptId);
+        allow create: if isDeptEditor(deptId);
+        allow update: if isDeptAdmin(deptId) && resource.data.voidedAt == null;
         allow delete: if false;
       }
-
-      // Reconciliation cycles
       match /reconciliationCycles/{cycleId} {
-        allow read: if isBuildingMember(buildingId);
-        allow write: if isBuildingAdmin(buildingId);
+        allow read: if isDeptMember(deptId);
+        allow write: if isDeptAdmin(deptId);
       }
-
-      // Audit log — client-side writes in Phase 1; locked to editors
       match /auditLog/{logId} {
-        allow read: if isBuildingAdmin(buildingId);
-        allow create: if isBuildingEditor(buildingId);
+        allow read: if isDeptAdmin(deptId);
+        allow create: if isDeptEditor(deptId);
         allow update, delete: if false;
+      }
+    }
+
+    // ---- Areas ----
+    match /areas/{areaId} {
+      allow read: if canReadArea(areaId);
+      allow create: if isAuth() && isDeptAdmin(request.resource.data.departmentId);
+      allow update: if canAdminArea(areaId);
+      allow delete: if false;
+
+      match /categories/{catId} {
+        allow read: if canReadArea(areaId);
+        allow write: if canAdminArea(areaId);
+      }
+      match /staffMembers/{staffId} {
+        allow read: if canReadArea(areaId);
+        allow write: if canAdminArea(areaId);
+      }
+      match /vendors/{vendorId} {
+        allow read: if canReadArea(areaId);
+        allow create, update: if canEditArea(areaId);
+        allow delete: if false;
+      }
+      match /events/{eventId} {
+        allow read: if canReadArea(areaId);
+        allow write: if canEditArea(areaId);
+      }
+      match /transactions/{txId} {
+        allow read: if canReadArea(areaId);
+        allow create: if canEditArea(areaId);
+        allow update: if canAdminArea(areaId) && resource.data.voidedAt == null;
+        allow delete: if false;
+      }
+      match /auditLog/{logId} {
+        allow read: if canAdminArea(areaId);
+        allow create: if canEditArea(areaId);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- Buildings ----
+    match /buildings/{buildingId} {
+      allow read: if canReadBuilding(buildingId);
+      allow create: if isAuth() && (
+        isDeptAdmin(request.resource.data.departmentId) ||
+        isAreaAdmin(request.resource.data.areaId)
+      );
+      allow update: if canAdminBuilding(buildingId);
+      allow delete: if false;
+
+      match /categories/{catId} {
+        allow read: if canReadBuilding(buildingId);
+        allow write: if canAdminBuilding(buildingId);
+      }
+      match /allocations/{fyId} {
+        allow read: if canReadBuilding(buildingId);
+        allow write: if canAdminBuilding(buildingId);
+      }
+      match /staffMembers/{staffId} {
+        allow read: if canReadBuilding(buildingId);
+        allow write: if canAdminBuilding(buildingId);
+      }
+      match /vendors/{vendorId} {
+        allow read: if canReadBuilding(buildingId);
+        allow create, update: if canEditBuilding(buildingId);
+        allow delete: if false;
+      }
+      match /events/{eventId} {
+        allow read: if canReadBuilding(buildingId);
+        allow write: if canEditBuilding(buildingId);
+      }
+      match /transactions/{txId} {
+        allow read: if canReadBuilding(buildingId);
+        allow create: if canEditBuilding(buildingId);
+        allow update: if canAdminBuilding(buildingId) && resource.data.voidedAt == null;
+        allow delete: if false;
+      }
+      match /reconciliationCycles/{cycleId} {
+        allow read: if canReadBuilding(buildingId);
+        allow write: if canAdminBuilding(buildingId);
+      }
+      match /auditLog/{logId} {
+        allow read: if canAdminBuilding(buildingId);
+        allow create: if canEditBuilding(buildingId);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- Complexes ----
+    // Complexes are operational groupings of buildings within an Area.
+    // Read access mirrors Area read access.
+    match /complexes/{complexId} {
+      allow read: if isAuth() && (
+        isAreaMember(resource.data.areaId) ||
+        isDeptMember(resource.data.departmentId)
+      );
+      allow create: if isAuth() && (
+        isDeptAdmin(request.resource.data.departmentId) ||
+        isAreaAdmin(request.resource.data.areaId)
+      );
+      allow update: if isAuth() && (
+        isAreaAdmin(resource.data.areaId) ||
+        isDeptAdmin(resource.data.departmentId)
+      );
+      allow delete: if false;
+
+      // Complex-level shared staff (visible to area/dept members)
+      match /staffMembers/{staffId} {
+        allow read: if isAuth() && (
+          isAreaMember(get(/databases/$(database)/documents/complexes/$(complexId)).data.areaId) ||
+          isDeptMember(get(/databases/$(database)/documents/complexes/$(complexId)).data.departmentId)
+        );
+        allow write: if isAuth() && (
+          isAreaAdmin(get(/databases/$(database)/documents/complexes/$(complexId)).data.areaId) ||
+          isDeptAdmin(get(/databases/$(database)/documents/complexes/$(complexId)).data.departmentId)
+        );
       }
     }
   }

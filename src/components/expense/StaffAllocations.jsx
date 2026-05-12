@@ -94,9 +94,6 @@ export default function StaffAllocations({ staff, allocations, onChange, totalCo
                 className="flex-1 text-sm text-gray-700 cursor-pointer"
               >
                 {s.firstName} {s.lastName}
-                {s.buildingCode && (
-                  <span className="ml-1 text-xs text-gray-400">({s.buildingCode})</span>
-                )}
               </label>
               {isSelected && (
                 <input

@@ -1,30 +1,39 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOrg } from '../../contexts/BuildingContext';
 import {
   subscribeToCollection,
-  updateDocument,
   getCollection,
+  getBatch,
+  batchUpdate,
   serverTimestamp,
   where,
   orderBy,
+  increment,
 } from '../../lib/firestore';
 import { formatCurrency, formatDate } from '../../lib/format';
 import Button from '../shared/Button';
 import Modal from '../shared/Modal';
 import Input from '../shared/Input';
+import ExpenseModal from '../expense/ExpenseModal';
 
 export default function TransactionsView({ building, fiscalYear }) {
   const { user } = useAuth();
+  const { activeDepartment } = useOrg();
+  const deptId = activeDepartment?.id;
   const [transactions, setTransactions] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [deptVendors, setDeptVendors] = useState([]);
+  const [paymentSources, setPaymentSources] = useState([]);
   const [categories, setCategories] = useState([]);
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [voidModal, setVoidModal] = useState(null);
+  const [editTx, setEditTx] = useState(null);
   const [filters, setFilters] = useState({ search: '', categoryId: '', staffId: '' });
 
   useEffect(() => {
-    if (!building?.id || !fiscalYear?.id) return;
+    if (!building?.id || !fiscalYear?.id || !deptId) return;
     const unsubTx = subscribeToCollection(
       `buildings/${building.id}/transactions`,
       (docs) => { setTransactions(docs); setLoading(false); },
@@ -32,29 +41,42 @@ export default function TransactionsView({ building, fiscalYear }) {
       orderBy('receiptDate', 'desc')
     );
     const unsubVendors = subscribeToCollection(`buildings/${building.id}/vendors`, setVendors);
+    const unsubDeptVendors = subscribeToCollection(`departments/${deptId}/vendors`, setDeptVendors);
+    const unsubPaymentSources = subscribeToCollection(
+      `departments/${deptId}/paymentSources`,
+      setPaymentSources,
+      orderBy('order', 'asc')
+    );
     const unsubCats = subscribeToCollection(
-      `buildings/${building.id}/categories`,
+      `departments/${deptId}/categories`,
       setCategories,
-      where('fiscalYearId', '==', fiscalYear.id)
+      orderBy('order', 'asc')
     );
     const unsubStaff = subscribeToCollection(
       `buildings/${building.id}/staffMembers`,
       setStaff,
       where('fiscalYearId', '==', fiscalYear.id)
     );
-    return () => { unsubTx(); unsubVendors(); unsubCats(); unsubStaff(); };
-  }, [building?.id, fiscalYear?.id]);
+    return () => { unsubTx(); unsubVendors(); unsubDeptVendors(); unsubPaymentSources(); unsubCats(); unsubStaff(); };
+  }, [building?.id, fiscalYear?.id, deptId]);
 
   const isAdmin = building?.roles?.[user?.uid] === 'admin';
 
-  const vendorMap = Object.fromEntries(vendors.map((v) => [v.id, v.name]));
+  // Merge dept + building vendors so transactions referencing dept-scoped
+  // vendors render correctly and so the void handler can locate either scope.
+  const vendorById = Object.fromEntries([
+    ...deptVendors.map((v) => [v.id, { ...v, scope: 'department' }]),
+    ...vendors.map((v) => [v.id, { ...v, scope: 'building' }]),
+  ]);
+  const vendorMap = Object.fromEntries(Object.entries(vendorById).map(([id, v]) => [id, v.name]));
+  const paymentSourceById = Object.fromEntries(paymentSources.map((p) => [p.id, p]));
   const staffMap = Object.fromEntries(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]));
 
-  function getCategoryLabel(tx) {
+  function getCategoryParts(tx) {
     const cat = categories.find((c) => c.id === tx.categoryId);
-    if (!cat) return '—';
+    if (!cat) return { category: '—', subcategory: '—' };
     const sub = cat.subCategories?.find((s) => s.id === tx.subCategoryId);
-    return sub ? `${cat.name} / ${sub.name}` : cat.name;
+    return { category: cat.name, subcategory: sub?.name ?? '—' };
   }
 
   const filtered = transactions.filter((tx) => {
@@ -74,16 +96,20 @@ export default function TransactionsView({ building, fiscalYear }) {
   });
 
   function exportCSV() {
-    const headers = ['Date', 'Vendor', 'Description', 'Category', 'Cost', 'Status', 'Notes'];
-    const rows = filtered.map((tx) => [
-      formatDate(tx.receiptDate),
-      vendorMap[tx.vendorId] ?? tx.vendorId,
-      tx.description ?? '',
-      getCategoryLabel(tx),
-      tx.cost ?? 0,
-      tx.reconciliationStatus,
-      tx.notes ?? '',
-    ]);
+    const headers = ['Date', 'Vendor', 'Description', 'Category', 'Subcategory', 'Cost', 'Status', 'Notes'];
+    const rows = filtered.map((tx) => {
+      const { category, subcategory } = getCategoryParts(tx);
+      return [
+        formatDate(tx.receiptDate),
+        vendorMap[tx.vendorId] ?? tx.vendorId,
+        tx.description ?? '',
+        category,
+        subcategory,
+        tx.cost ?? 0,
+        tx.reconciliationStatus,
+        tx.notes ?? '',
+      ];
+    });
     const csv = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -147,46 +173,68 @@ export default function TransactionsView({ building, fiscalYear }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[110px]">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[220px]">Vendor</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                {isAdmin && <th className="px-4 py-3 w-20" />}
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[150px]">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[160px]">Subcategory</th>
+                <th className="pl-4 pr-[41px] py-3 text-right text-xs font-medium text-gray-500 uppercase w-[120px] border-r-2 border-gray-300">Cost</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[90px]">Source</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-[80px]">Status</th>
+                {isAdmin && <th className="px-4 py-3 w-[80px]" />}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
-              {filtered.map((tx) => (
+              {filtered.map((tx) => {
+                const { category, subcategory } = getCategoryParts(tx);
+                const source = tx.paymentSourceId ? paymentSourceById[tx.paymentSourceId] : null;
+                return (
                 <tr
                   key={tx.id}
                   className={`hover:bg-gray-50 ${tx.reconciliationStatus === 'voided' ? 'opacity-40 line-through' : ''}`}
                 >
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(tx.receiptDate)}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{vendorMap[tx.vendorId] ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{tx.description || '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{getCategoryLabel(tx)}</td>
-                  <td className="px-4 py-3 text-right text-gray-800 font-medium">{formatCurrency(tx.cost)}</td>
+                  <td className="px-4 py-3 font-medium text-gray-800 truncate" title={vendorMap[tx.vendorId] ?? ''}>{vendorMap[tx.vendorId] ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 truncate" title={tx.description ?? ''}>{tx.description || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 truncate" title={category}>{category}</td>
+                  <td className="px-4 py-3 text-gray-600 truncate" title={subcategory}>{subcategory}</td>
+                  <td className="pl-4 pr-[41px] py-3 text-right text-gray-800 font-medium whitespace-nowrap border-r-2 border-gray-300">{formatCurrency(tx.cost)}</td>
+                  <td className="px-4 py-3">
+                    <SourceBadge source={source} />
+                  </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={tx.reconciliationStatus} />
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-3 text-right">
                       {tx.reconciliationStatus !== 'voided' && (
-                        <button
-                          onClick={() => setVoidModal(tx)}
-                          className="text-xs text-red-500 hover:text-red-700 hover:underline"
-                        >
-                          Void
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditTx(tx)}
+                            title="Edit"
+                            aria-label="Edit transaction"
+                            className="text-gray-400 hover:text-gray-700 p-1 rounded"
+                          >
+                            <PencilIcon className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setVoidModal(tx)}
+                            title="Void"
+                            aria-label="Void transaction"
+                            className="text-gray-400 hover:text-red-500 p-1 rounded"
+                          >
+                            <BanIcon className="w-4 h-4" />
+                          </button>
+                        </div>
                       )}
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -197,10 +245,36 @@ export default function TransactionsView({ building, fiscalYear }) {
         onClose={() => setVoidModal(null)}
         transaction={voidModal}
         building={building}
+        deptId={deptId}
         user={user}
         vendorMap={vendorMap}
+        vendorById={vendorById}
+      />
+
+      <ExpenseModal
+        isOpen={editTx !== null}
+        onClose={() => setEditTx(null)}
+        building={building}
+        existing={editTx}
       />
     </div>
+  );
+}
+
+function SourceBadge({ source }) {
+  if (!source) return <span className="text-xs text-gray-300">—</span>;
+  // Cool color for reconciling sources, neutral gray for non-reconciling ones.
+  // Once Phase 2 reconciliation lands, the blue badges flag work in queue.
+  const cls = source.requiresReconciliation
+    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+    : 'bg-gray-100 text-gray-600 border border-gray-200';
+  return (
+    <span
+      className={`inline-flex px-2 py-0.5 text-[11px] font-mono font-medium rounded ${cls}`}
+      title={source.name}
+    >
+      {source.code}
+    </span>
   );
 }
 
@@ -218,7 +292,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function VoidModal({ isOpen, onClose, transaction, building, user, vendorMap }) {
+function VoidModal({ isOpen, onClose, transaction, building, deptId, user, vendorMap, vendorById }) {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -227,13 +301,28 @@ function VoidModal({ isOpen, onClose, transaction, building, user, vendorMap }) 
   async function handleVoid() {
     setLoading(true);
     try {
-      await updateDocument(`buildings/${building.id}/transactions/${transaction.id}`, {
+      const batch = getBatch();
+      batchUpdate(batch, `buildings/${building.id}/transactions/${transaction.id}`, {
         reconciliationStatus: 'voided',
         voidedAt: serverTimestamp(),
         voidReason: reason.trim() || null,
         lastEditedAt: serverTimestamp(),
         lastEditedBy: user.uid,
       });
+      // Roll back the vendor's denormalized counters. Voids are reversible at
+      // the data level (we just flip the status flag) but un-voiding isn't
+      // exposed in the UI today, so we don't track that direction here.
+      const vendor = vendorById?.[transaction.vendorId];
+      if (vendor) {
+        const vPath = vendor.scope === 'department'
+          ? `departments/${deptId}/vendors/${vendor.id}`
+          : `buildings/${building.id}/vendors/${vendor.id}`;
+        batchUpdate(batch, vPath, {
+          transactionCount: increment(-1),
+          totalSpend: increment(-(transaction.cost ?? 0)),
+        });
+      }
+      await batch.commit();
       onClose();
     } catch (err) {
       console.error(err);
@@ -264,5 +353,21 @@ function VoidModal({ isOpen, onClose, transaction, building, user, vendorMap }) 
         <Button variant="danger" loading={loading} onClick={handleVoid}>Void Transaction</Button>
       </div>
     </Modal>
+  );
+}
+
+function PencilIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+  );
+}
+
+function BanIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+    </svg>
   );
 }

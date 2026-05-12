@@ -14,10 +14,25 @@ import {
   writeBatch,
   serverTimestamp,
   Timestamp,
+  arrayUnion,
+  arrayRemove,
+  increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
-export { serverTimestamp, Timestamp, query, where, orderBy, onSnapshot, collection, doc };
+export {
+  serverTimestamp,
+  Timestamp,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  collection,
+  doc,
+  arrayUnion,
+  arrayRemove,
+  increment,
+};
 
 // Generic document helpers
 
@@ -61,10 +76,17 @@ export function subscribeToCollection(collectionPath, callback, ...queryConstrai
   });
 }
 
-export function subscribeToDocument(path, callback) {
-  return onSnapshot(doc(db, path), (snap) => {
-    callback(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-  });
+export function subscribeToDocument(path, callback, errorCallback) {
+  return onSnapshot(
+    doc(db, path),
+    (snap) => {
+      callback(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+    },
+    (err) => {
+      if (errorCallback) errorCallback(err);
+      else console.error(`subscribeToDocument(${path}) error:`, err);
+    }
+  );
 }
 
 export function getBatch() {

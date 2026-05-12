@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useBuilding } from '../../contexts/BuildingContext';
+import { useOrg } from '../../contexts/BuildingContext';
 import {
   subscribeToCollection,
   addDocument,
@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   where,
   orderBy,
+  increment,
 } from '../../lib/firestore';
 import { toTimestamp } from '../../lib/format';
 import Modal from '../shared/Modal';
@@ -26,6 +27,12 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function tsToDateStr(ts) {
+  const d = ts?.toDate?.();
+  if (!d) return '';
+  return d.toISOString().slice(0, 10);
+}
+
 function emptyForm() {
   return {
     receiptDate: today(),
@@ -37,43 +44,80 @@ function emptyForm() {
     staffAllocations: [],
     eventId: null,
     eventTitle: '',
+    externalEventId: '', // UB Linked Event ID (the unique key code)
+    strategyTypeId: '',
     cost: '',
+    paymentSourceId: null,
     subGroupingTag: '',
     notes: '',
   };
 }
 
-export default function ExpenseModal({ isOpen, onClose, building }) {
+function formFromTransaction(tx, eventsList) {
+  const ev = tx.eventId ? eventsList.find((e) => e.id === tx.eventId) : null;
+  return {
+    receiptDate: tsToDateStr(tx.receiptDate) || today(),
+    transactionDate:
+      tsToDateStr(tx.transactionDate) === tsToDateStr(tx.receiptDate)
+        ? ''
+        : tsToDateStr(tx.transactionDate),
+    vendorId: tx.vendorId ?? null,
+    description: tx.description ?? '',
+    categoryId: tx.categoryId ?? null,
+    subCategoryId: tx.subCategoryId ?? null,
+    staffAllocations: tx.staffAllocations ?? [],
+    eventId: tx.eventId ?? null,
+    eventTitle: ev?.title ?? '',
+    externalEventId: tx.externalEventId ?? ev?.externalId ?? '',
+    strategyTypeId: ev?.strategyTypeId ?? '',
+    cost: tx.cost != null ? String(tx.cost) : '',
+    paymentSourceId: tx.paymentSourceId ?? null,
+    subGroupingTag: tx.subGroupingTag ?? '',
+    notes: tx.notes ?? '',
+  };
+}
+
+export default function ExpenseModal({ isOpen, onClose, building, existing = null }) {
   const { user } = useAuth();
-  const { fiscalYear } = useBuilding();
+  const { fiscalYear, activeDepartment } = useOrg();
+  const deptId = activeDepartment?.id;
+  const editMode = !!existing;
 
   const [form, setForm] = useState(emptyForm());
-  const [vendors, setVendors] = useState([]);
+  const [bldgVendors, setBldgVendors] = useState([]);
+  const [deptVendors, setDeptVendors] = useState([]);
   const [categories, setCategories] = useState([]);
   const [staff, setStaff] = useState([]);
   const [events, setEvents] = useState([]);
+  const [strategyTypes, setStrategyTypes] = useState([]);
+  const [paymentSources, setPaymentSources] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [saveAndAdd, setSaveAndAdd] = useState(false);
 
   const trackPersonal = building?.settings?.trackPersonalBudgets;
   const subGroupLabel = building?.settings?.subGroupingLabel;
-  const eventIntegration = building?.settings?.eventIntegration;
-  const hasEvents = eventIntegration && eventIntegration !== 'none';
+
+  const selectedCategory = categories.find((c) => c.id === form.categoryId);
+  const categoryRequiresEvent = !!selectedCategory?.requiresEvent;
 
   // Subscribe to vendors, categories, staff, events when modal opens
   useEffect(() => {
-    if (!isOpen || !building?.id || !fiscalYear?.id) return;
+    if (!isOpen || !building?.id || !fiscalYear?.id || !deptId) return;
 
-    const unsubVendors = subscribeToCollection(
+    const unsubBldgVendors = subscribeToCollection(
       `buildings/${building.id}/vendors`,
-      setVendors,
+      setBldgVendors,
+      orderBy('name', 'asc')
+    );
+    const unsubDeptVendors = subscribeToCollection(
+      `departments/${deptId}/vendors`,
+      setDeptVendors,
       orderBy('name', 'asc')
     );
     const unsubCats = subscribeToCollection(
-      `buildings/${building.id}/categories`,
+      `departments/${deptId}/categories`,
       setCategories,
-      where('fiscalYearId', '==', fiscalYear.id),
       orderBy('order', 'asc')
     );
     const unsubStaff = building.settings?.trackPersonalBudgets
@@ -84,20 +128,46 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
           orderBy('lastName', 'asc')
         )
       : () => {};
-    const unsubEvents = hasEvents
-      ? subscribeToCollection(`buildings/${building.id}/events`, setEvents, orderBy('title', 'asc'))
-      : () => {};
+    const unsubEvents = subscribeToCollection(
+      `buildings/${building.id}/events`,
+      setEvents,
+      orderBy('title', 'asc')
+    );
+    const unsubStrategies = subscribeToCollection(
+      `departments/${deptId}/strategyTypes`,
+      setStrategyTypes,
+      orderBy('order', 'asc')
+    );
+    const unsubPaymentSources = subscribeToCollection(
+      `departments/${deptId}/paymentSources`,
+      (docs) => setPaymentSources(docs.filter((p) => !p.archived)),
+      orderBy('order', 'asc')
+    );
 
-    return () => { unsubVendors(); unsubCats(); unsubStaff(); unsubEvents(); };
-  }, [isOpen, building?.id, fiscalYear?.id]);
+    return () => {
+      unsubBldgVendors(); unsubDeptVendors(); unsubCats(); unsubStaff(); unsubEvents(); unsubStrategies(); unsubPaymentSources();
+    };
+  }, [isOpen, building?.id, fiscalYear?.id, deptId]);
 
-  // Reset form when modal opens
+  // Merge dept + building vendors with a scope tag so we can gate per-building
+  // stats updates and let the typeahead label shared entries.
+  const vendors = [
+    ...deptVendors.map((v) => ({ ...v, scope: 'department' })),
+    ...bldgVendors.map((v) => ({ ...v, scope: 'building' })),
+  ];
+
+  // Reset form when modal opens. In edit mode, populate from the transaction
+  // once events have loaded (so we can resolve title/externalId/strategyType
+  // from the linked event doc).
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    if (editMode) {
+      setForm(formFromTransaction(existing, events));
+    } else {
       setForm(emptyForm());
-      setError('');
     }
-  }, [isOpen]);
+    setError('');
+  }, [isOpen, editMode, existing?.id, events.length]);
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -124,6 +194,9 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
     if (!form.subCategoryId) return 'Sub-category is required.';
     if (!form.receiptDate) return 'Receipt date is required.';
     if (isNaN(cost) || cost <= 0) return 'Cost must be a positive number.';
+    if (categoryRequiresEvent && !form.eventTitle.trim() && !form.externalEventId.trim() && !form.eventId) {
+      return 'Event is required for this category. Enter an event title or UB Linked Event ID.';
+    }
     // Date within fiscal year
     if (fiscalYear) {
       const receiptTs = new Date(form.receiptDate).getTime();
@@ -165,14 +238,28 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
       const receiptDateTs = toTimestamp(form.receiptDate);
       const txDateTs = toTimestamp(txDate);
 
-      // Handle free_text event create-on-the-fly
+      // Resolve or create the event doc.
+      // Priority: explicit eventId from picker > match by externalEventId > match by title > create new.
       let eventId = form.eventId;
-      if (hasEvents && form.eventTitle.trim() && !eventId) {
+      const externalId = form.externalEventId.trim() || null;
+      const title = form.eventTitle.trim();
+      const strategyTypeId = form.strategyTypeId || null;
+
+      if (!eventId && externalId) {
+        const existing = events.find((ev) => ev.externalId === externalId);
+        if (existing) eventId = existing.id;
+      }
+      if (!eventId && title) {
+        const existing = events.find((ev) => ev.title?.toLowerCase() === title.toLowerCase());
+        if (existing) eventId = existing.id;
+      }
+      if (!eventId && (title || externalId)) {
         eventId = await addDocument(`buildings/${building.id}/events`, {
-          title: form.eventTitle.trim(),
-          externalId: null,
+          title: title || externalId,
+          externalId,
           externalUrl: null,
           eventDate: null,
+          strategyTypeId,
           associatedStaffIds: form.staffAllocations.map((a) => a.staffId),
           notes: '',
           verified: false,
@@ -181,51 +268,105 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
         });
       }
 
-      const txId = newDocId(`buildings/${building.id}/transactions`);
       const batch = getBatch();
-
-      batchSet(batch, `buildings/${building.id}/transactions/${txId}`, {
-        fiscalYearId: fiscalYear.id,
+      const baseFields = {
         receiptDate: receiptDateTs,
         transactionDate: txDateTs,
-        recordedBy: user.uid,
         staffAllocations: form.staffAllocations,
         vendorId: form.vendorId,
         description: form.description.trim(),
         categoryId: form.categoryId,
         subCategoryId: form.subCategoryId,
         cost,
+        paymentSourceId: form.paymentSourceId || null,
         eventId: eventId ?? null,
-        reconciliationStatus: 'open',
-        reconciliationCycleId: null,
-        receiptUrl: null,
+        externalEventId: externalId,
         notes: form.notes.trim(),
         subGroupingTag: subGroupLabel && form.subGroupingTag.trim() ? form.subGroupingTag.trim() : null,
-        createdAt: serverTimestamp(),
         lastEditedAt: serverTimestamp(),
         lastEditedBy: user.uid,
-        voidedAt: null,
-        voidReason: null,
-        linkedTransactionId: null,
-      });
+      };
 
-      // Update vendor metadata
-      batchUpdate(batch, `buildings/${building.id}/vendors/${form.vendorId}`, {
-        lastUsedAt: serverTimestamp(),
-        transactionCount: (vendors.find((v) => v.id === form.vendorId)?.transactionCount ?? 0) + 1,
-        totalSpend: (vendors.find((v) => v.id === form.vendorId)?.totalSpend ?? 0) + cost,
-      });
+      // Resolve the Firestore path for a vendor doc by scope. Dept-scoped
+      // vendors live under departments/<deptId>/vendors; multiple buildings
+      // may write the same doc concurrently, so counters use increment() to
+      // be race-safe.
+      const vendorPath = (v) =>
+        v?.scope === 'department'
+          ? `departments/${deptId}/vendors/${v.id}`
+          : `buildings/${building.id}/vendors/${v.id}`;
+
+      if (editMode) {
+        // Update existing transaction
+        batchUpdate(batch, `buildings/${building.id}/transactions/${existing.id}`, baseFields);
+
+        const oldVendor = existing.vendorId;
+        const oldCost = existing.cost ?? 0;
+        const oldVendorDoc = vendors.find((v) => v.id === oldVendor);
+        const newVendorDoc = vendors.find((v) => v.id === form.vendorId);
+        if (oldVendor === form.vendorId) {
+          if (newVendorDoc && oldCost !== cost) {
+            batchUpdate(batch, vendorPath(newVendorDoc), {
+              lastUsedAt: serverTimestamp(),
+              totalSpend: increment(cost - oldCost),
+            });
+          }
+        } else {
+          if (oldVendorDoc) {
+            batchUpdate(batch, vendorPath(oldVendorDoc), {
+              transactionCount: increment(-1),
+              totalSpend: increment(-oldCost),
+            });
+          }
+          if (newVendorDoc) {
+            batchUpdate(batch, vendorPath(newVendorDoc), {
+              lastUsedAt: serverTimestamp(),
+              transactionCount: increment(1),
+              totalSpend: increment(cost),
+            });
+          }
+        }
+      } else {
+        // Create new transaction
+        const txId = newDocId(`buildings/${building.id}/transactions`);
+        batchSet(batch, `buildings/${building.id}/transactions/${txId}`, {
+          ...baseFields,
+          fiscalYearId: fiscalYear.id,
+          recordedBy: user.uid,
+          reconciliationStatus: 'open',
+          reconciliationCycleId: null,
+          receiptUrl: null,
+          createdAt: serverTimestamp(),
+          voidedAt: null,
+          voidReason: null,
+          linkedTransactionId: null,
+        });
+
+        const newVendorDoc = vendors.find((v) => v.id === form.vendorId);
+        if (newVendorDoc) {
+          batchUpdate(batch, vendorPath(newVendorDoc), {
+            lastUsedAt: serverTimestamp(),
+            transactionCount: increment(1),
+            totalSpend: increment(cost),
+          });
+        }
+      }
 
       await batch.commit();
 
-      if (saveAndAdd) {
-        // Preserve date, vendor, event for batch entry
+      if (editMode) {
+        onClose();
+      } else if (saveAndAdd) {
+        // Preserve date, vendor, event, payment source for batch entry
         setForm((f) => ({
           ...emptyForm(),
           receiptDate: f.receiptDate,
           vendorId: f.vendorId,
           eventId: f.eventId,
           eventTitle: f.eventTitle,
+          externalEventId: f.externalEventId,
+          strategyTypeId: f.strategyTypeId,
+          paymentSourceId: f.paymentSourceId,
         }));
       } else {
         onClose();
@@ -239,7 +380,7 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="New Expense" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={editMode ? 'Edit Expense' : 'New Expense'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Dates */}
         <div className="grid grid-cols-2 gap-3">
@@ -287,18 +428,38 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
           onSubCategoryChange={(id) => set('subCategoryId', id)}
         />
 
-        {/* Cost */}
-        <Input
-          label="Cost ($) *"
-          id="cost"
-          type="number"
-          min="0.01"
-          step="0.01"
-          required
-          value={form.cost}
-          onChange={(e) => set('cost', e.target.value)}
-          placeholder="0.00"
-        />
+        {/* Cost + Payment Source */}
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Cost ($) *"
+            id="cost"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            value={form.cost}
+            onChange={(e) => set('cost', e.target.value)}
+            placeholder="0.00"
+          />
+          <div>
+            <label htmlFor="paymentSourceId" className="block text-sm font-medium text-gray-700 mb-1">
+              Payment Source
+            </label>
+            <select
+              id="paymentSourceId"
+              value={form.paymentSourceId ?? ''}
+              onChange={(e) => set('paymentSourceId', e.target.value || null)}
+              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">— Select —</option>
+              {paymentSources.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.requiresReconciliation ? '' : ' (no reconcile)'}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         {/* Staff Allocations */}
         {trackPersonal && staff.length > 0 && (
@@ -311,24 +472,69 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
         )}
 
         {/* Event */}
-        {hasEvents && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Event / Program</label>
-            <input
-              type="text"
-              value={form.eventTitle}
-              onChange={(e) => { set('eventTitle', e.target.value); set('eventId', null); }}
-              list="events-list"
-              placeholder="Search or type event name..."
-              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <datalist id="events-list">
-              {events.map((ev) => (
-                <option key={ev.id} value={ev.title} />
-              ))}
-            </datalist>
+        <div className="border-t border-gray-100 pt-4 space-y-3">
+          <div className="text-xs font-medium text-gray-400 uppercase">
+            Event {categoryRequiresEvent && <span className="text-red-500 normal-case lowercase">required for this category</span>}
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Event Title{categoryRequiresEvent ? ' *' : ''}
+              </label>
+              <input
+                type="text"
+                value={form.eventTitle}
+                onChange={(e) => {
+                  set('eventTitle', e.target.value);
+                  set('eventId', null);
+                }}
+                list="events-list"
+                placeholder="e.g. Welcome Back BBQ"
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <datalist id="events-list">
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.title} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                UB Linked Event ID
+              </label>
+              <input
+                type="text"
+                value={form.externalEventId}
+                onChange={(e) => {
+                  set('externalEventId', e.target.value);
+                  set('eventId', null);
+                }}
+                placeholder="e.g. 12345 (from UB Linked)"
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          {strategyTypes.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Strategy Type
+              </label>
+              <select
+                value={form.strategyTypeId}
+                onChange={(e) => set('strategyTypeId', e.target.value)}
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">— None —</option>
+                {strategyTypes.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Saved on the event doc when a new event is created. Existing events keep their current strategy.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Sub-grouping tag */}
         {subGroupLabel && (
@@ -362,22 +568,24 @@ export default function ExpenseModal({ isOpen, onClose, building }) {
         <div className="flex items-center justify-between pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <div className="flex gap-2">
-            <Button
-              type="submit"
-              variant="secondary"
-              loading={loading && saveAndAdd}
-              disabled={loading}
-              onClick={() => setSaveAndAdd(true)}
-            >
-              Save & Add Another
-            </Button>
+            {!editMode && (
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={loading && saveAndAdd}
+                disabled={loading}
+                onClick={() => setSaveAndAdd(true)}
+              >
+                Save & Add Another
+              </Button>
+            )}
             <Button
               type="submit"
               loading={loading && !saveAndAdd}
               disabled={loading}
               onClick={() => setSaveAndAdd(false)}
             >
-              Save Expense
+              {editMode ? 'Save Changes' : 'Save Expense'}
             </Button>
           </div>
         </div>
