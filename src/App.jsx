@@ -12,11 +12,12 @@ import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Staff from './pages/Staff';
 import Vendors from './pages/Vendors';
+import Events from './pages/Events';
 import Admin from './pages/Admin';
 import ExpenseModal from './components/expense/ExpenseModal';
 
 function AppRoutes() {
-  const { building, loadingBuildings } = useBuilding();
+  const { building, departments, loadingBuildings } = useBuilding();
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
 
   if (loadingBuildings) {
@@ -27,8 +28,8 @@ function AppRoutes() {
     );
   }
 
-  // No building yet → send to setup wizard
-  if (!building) {
+  // No department yet → send to setup wizard
+  if (departments.length === 0) {
     return (
       <Routes>
         <Route path="/setup" element={<Setup />} />
@@ -45,6 +46,7 @@ function AppRoutes() {
           <Route path="transactions" element={<Transactions />} />
           <Route path="staff" element={<Staff />} />
           <Route path="vendors" element={<Vendors />} />
+          <Route path="events" element={<Events />} />
           <Route path="admin/*" element={<Admin />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

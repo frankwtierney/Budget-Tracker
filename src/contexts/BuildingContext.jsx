@@ -1,75 +1,223 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { subscribeToDocument, subscribeToCollection, where } from '../lib/firestore';
+import {
+  subscribeToDocument,
+  subscribeToCollection,
+  where,
+} from '../lib/firestore';
 
-const BuildingContext = createContext(null);
+const OrgContext = createContext(null);
+
+// Single context that provides the full Department → Area → Building hierarchy
+// the user has access to, plus the currently selected scope (which budget the
+// pages render). Existing pages keep using useBuilding() — that returns the
+// selected building when scope === 'building', else null.
 
 export function BuildingProvider({ children }) {
   const { user } = useAuth();
-  const [building, setBuilding] = useState(null);
+  const [userDoc, setUserDoc] = useState(null);
+  const [departments, setDepartments] = useState({});
+  const [areas, setAreas] = useState({});
+  const [buildings, setBuildings] = useState({});
+  const [complexes, setComplexes] = useState({});
   const [fiscalYear, setFiscalYear] = useState(null);
-  const [buildings, setBuildings] = useState([]);
-  const [loadingBuildings, setLoadingBuildings] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [scope, setScope] = useState(null); // { level, id } or null
 
-  // Subscribe to all buildings the user has a role in
+  // 1. Subscribe to user doc
   useEffect(() => {
     if (!user) {
-      setBuildings([]);
-      setLoadingBuildings(false);
+      setUserDoc(null);
+      setLoading(false);
       return;
     }
-
-    // Firestore can't query nested map keys directly, so we subscribe to
-    // all buildings and filter client-side by role presence.
-    // At the scale of this app (few buildings per user) this is fine.
-    const unsub = subscribeToCollection('buildings', (docs) => {
-      const accessible = docs.filter((b) => b.roles && b.roles[user.uid]);
-      setBuildings(accessible);
-      setLoadingBuildings(false);
-    });
-
+    const unsub = subscribeToDocument(`users/${user.uid}`, setUserDoc);
     return unsub;
   }, [user]);
 
-  // Auto-select the first building when buildings load
-  useEffect(() => {
-    if (buildings.length > 0 && !building) {
-      setBuilding(buildings[0]);
-    }
-    if (buildings.length === 0) {
-      setBuilding(null);
-    }
-  }, [buildings]);
+  // 2. Subscribe to each accessible doc by ID (single-record reads pass rules)
+  const deptIdsKey = (userDoc?.departmentIds ?? []).join(',');
+  const areaIdsKey = (userDoc?.areaIds ?? []).join(',');
+  const buildingIdsKey = (userDoc?.buildingIds ?? []).join(',');
 
-  // Subscribe to active fiscal year for the selected building
   useEffect(() => {
-    if (!building?.activeFiscalYearId) {
+    if (!user || !userDoc) return;
+
+    const deptIds = userDoc.departmentIds ?? [];
+    const areaIds = userDoc.areaIds ?? [];
+    const buildingIds = userDoc.buildingIds ?? [];
+
+    if (deptIds.length === 0 && areaIds.length === 0 && buildingIds.length === 0) {
+      setDepartments({});
+      setAreas({});
+      setBuildings({});
+      setLoading(false);
+      return;
+    }
+
+    const unsubs = [];
+
+    const subscribeMap = (ids, path, setter) => {
+      ids.forEach((id) => {
+        const unsub = subscribeToDocument(`${path}/${id}`, (d) => {
+          setter((prev) => {
+            if (!d) {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            }
+            return { ...prev, [id]: d };
+          });
+        });
+        unsubs.push(unsub);
+      });
+    };
+
+    subscribeMap(deptIds, 'departments', setDepartments);
+    subscribeMap(areaIds, 'areas', setAreas);
+    subscribeMap(buildingIds, 'buildings', setBuildings);
+
+    setLoading(false);
+
+    return () => unsubs.forEach((u) => u());
+  }, [user, userDoc, deptIdsKey, areaIdsKey, buildingIdsKey]);
+
+  // 3. Subscribe to complexes for each accessible department
+  const deptKeys = Object.keys(departments).sort().join(',');
+  useEffect(() => {
+    const deptIds = Object.keys(departments);
+    if (deptIds.length === 0) {
+      setComplexes({});
+      return;
+    }
+    const unsubs = [];
+    deptIds.forEach((deptId) => {
+      const unsub = subscribeToCollection(
+        'complexes',
+        (docs) => {
+          setComplexes((prev) => {
+            const next = { ...prev };
+            // Remove old entries for this dept, then add fresh
+            Object.keys(next).forEach((k) => {
+              if (next[k]?.departmentId === deptId) delete next[k];
+            });
+            docs.forEach((d) => {
+              next[d.id] = d;
+            });
+            return next;
+          });
+        },
+        where('departmentId', '==', deptId)
+      );
+      unsubs.push(unsub);
+    });
+    return () => unsubs.forEach((u) => u());
+  }, [deptKeys]);
+
+  // 4. Default scope: prefer user's home building, else first building, else first area, else department
+  useEffect(() => {
+    if (scope) return;
+    const buildingIds = Object.keys(buildings);
+    const areaIds = Object.keys(areas);
+    const deptIds = Object.keys(departments);
+    const homeId = userDoc?.homeBuildingId;
+    if (homeId && buildings[homeId]) {
+      setScope({ level: 'building', id: homeId });
+    } else if (buildingIds.length > 0) {
+      setScope({ level: 'building', id: buildingIds[0] });
+    } else if (areaIds.length > 0) {
+      setScope({ level: 'area', id: areaIds[0] });
+    } else if (deptIds.length > 0) {
+      setScope({ level: 'department', id: deptIds[0] });
+    }
+  }, [buildings, areas, departments, scope, userDoc?.homeBuildingId]);
+
+  // 5. Active fiscal year for the active department
+  const activeDept = useMemo(() => {
+    if (scope?.level === 'department') return departments[scope.id];
+    if (scope?.level === 'area') {
+      const a = areas[scope.id];
+      return a ? departments[a.departmentId] : null;
+    }
+    if (scope?.level === 'complex') {
+      const c = complexes[scope.id];
+      return c ? departments[c.departmentId] : null;
+    }
+    if (scope?.level === 'building') {
+      const b = buildings[scope.id];
+      return b ? departments[b.departmentId] : null;
+    }
+    return Object.values(departments)[0] ?? null;
+  }, [scope, departments, areas, buildings, complexes]);
+
+  useEffect(() => {
+    if (!activeDept?.activeFiscalYearId) {
       setFiscalYear(null);
       return;
     }
     const unsub = subscribeToDocument(
-      `buildings/${building.id}/fiscalYears/${building.activeFiscalYearId}`,
+      `departments/${activeDept.id}/fiscalYears/${activeDept.activeFiscalYearId}`,
       setFiscalYear
     );
     return unsub;
-  }, [building?.id, building?.activeFiscalYearId]);
+  }, [activeDept?.id, activeDept?.activeFiscalYearId]);
 
+  // Backward-compat surface for existing pages that read `building`
+  const building = useMemo(() => {
+    if (scope?.level === 'building') return buildings[scope.id] ?? null;
+    return null;
+  }, [scope, buildings]);
+
+  const buildingsList = useMemo(() => Object.values(buildings), [buildings]);
+  const areasList = useMemo(() => Object.values(areas), [areas]);
+  const complexesList = useMemo(() => Object.values(complexes), [complexes]);
+  const departmentsList = useMemo(() => Object.values(departments), [departments]);
+
+  function selectScope(level, id) {
+    setScope({ level, id });
+  }
+
+  // Legacy: select a building by full doc (existing AppShell uses this)
   function selectBuilding(b) {
-    setBuilding(b);
-    setFiscalYear(null);
+    if (b?.id) setScope({ level: 'building', id: b.id });
   }
 
   return (
-    <BuildingContext.Provider
-      value={{ building, fiscalYear, buildings, loadingBuildings, selectBuilding }}
+    <OrgContext.Provider
+      value={{
+        // Hierarchy
+        departments: departmentsList,
+        areas: areasList,
+        complexes: complexesList,
+        buildings: buildingsList,
+        // Maps for fast id lookup
+        departmentsById: departments,
+        areasById: areas,
+        complexesById: complexes,
+        buildingsById: buildings,
+        // Selection
+        scope,
+        selectScope,
+        activeDepartment: activeDept,
+        // Backward-compat for existing pages
+        building,
+        loadingBuildings: loading,
+        selectBuilding,
+        fiscalYear,
+      }}
     >
       {children}
-    </BuildingContext.Provider>
+    </OrgContext.Provider>
   );
 }
 
-export function useBuilding() {
-  const ctx = useContext(BuildingContext);
-  if (!ctx) throw new Error('useBuilding must be used within BuildingProvider');
+export function useOrg() {
+  const ctx = useContext(OrgContext);
+  if (!ctx) throw new Error('useOrg must be used within BuildingProvider');
   return ctx;
+}
+
+// Backward-compat alias used by existing pages.
+export function useBuilding() {
+  return useOrg();
 }

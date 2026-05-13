@@ -3,13 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   setDocument,
-  addDocument,
   getBatch,
   batchSet,
+  batchUpdate,
   newDocId,
   serverTimestamp,
+  arrayUnion,
 } from '../lib/firestore';
 import { toTimestamp } from '../lib/format';
+import {
+  DEFAULT_DEPARTMENT,
+  DEFAULT_AREAS,
+  DEFAULT_BUILDINGS,
+  DEFAULT_COMPLEXES,
+} from '../lib/structure';
 import { APP_NAME } from '../config';
 import Button from '../components/shared/Button';
 import Input from '../components/shared/Input';
@@ -20,85 +27,190 @@ const RECONCILIATION_CYCLES = [
   { value: 'custom', label: 'Custom' },
 ];
 
+// Five years of options around "now". Adjust as needed.
+function fiscalYearOptions() {
+  const thisYear = new Date().getFullYear();
+  const opts = [];
+  for (let y = thisYear - 1; y <= thisYear + 4; y++) {
+    opts.push({ value: y, label: `AY ${y}–${y + 1}` });
+  }
+  return opts;
+}
+
 export default function Setup() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const fyOptions = fiscalYearOptions();
+  const defaultStartYear = new Date().getMonth() >= 6 // Aug+ → next AY starts this year
+    ? new Date().getFullYear()
+    : new Date().getFullYear() - 1;
+
   const [form, setForm] = useState({
-    buildingName: '',
-    buildingType: '',
-    fyLabel: '',
-    fyStart: '',
-    fyEnd: '',
-    splitPeriods: false,
-    splitPeriodNames: ['Fall', 'Spring'],
-    splitDate: '',
+    deptName: DEFAULT_DEPARTMENT.name,
+    deptShortName: DEFAULT_DEPARTMENT.shortName,
+    fyStartYear: defaultStartYear,
+    fyStartDate: '',
+    fyEndDate: '',
+    fallStart: '',
+    fallEnd: '',
+    springStart: '',
+    springEnd: '',
     reconciliationCycle: 'monthly',
-    trackPersonalBudgets: false,
-    subGroupingLabel: '',
+    homeBuildingCode: DEFAULT_BUILDINGS[0]?.code ?? '',
   });
+
+  const buildingsByArea = DEFAULT_AREAS
+    .map((a) => ({ area: a, buildings: DEFAULT_BUILDINGS.filter((b) => b.areaCode === a.code) }))
+    .filter((g) => g.buildings.length > 0);
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  // When the AY year changes, fill default dates if blank.
+  function onYearChange(year) {
+    const y = Number(year);
+    setForm((f) => ({
+      ...f,
+      fyStartYear: y,
+      fyStartDate: f.fyStartDate || `${y}-08-01`,
+      fyEndDate: f.fyEndDate || `${y + 1}-07-31`,
+    }));
+  }
+
+  async function handleSubmit(seedDefaults) {
     setError('');
 
-    if (!form.buildingName.trim()) return setError('Building name is required.');
-    if (!form.fyStart || !form.fyEnd) return setError('Fiscal year start and end dates are required.');
-    if (new Date(form.fyStart) >= new Date(form.fyEnd))
+    if (!form.deptName.trim()) return setError('Department name is required.');
+    const startDate = form.fyStartDate || `${form.fyStartYear}-08-01`;
+    const endDate = form.fyEndDate || `${form.fyStartYear + 1}-07-31`;
+    if (new Date(startDate) >= new Date(endDate)) {
       return setError('Fiscal year end must be after start.');
-    if (form.splitPeriods && !form.splitDate)
-      return setError('Split date is required when split periods are enabled.');
+    }
 
     setLoading(true);
     try {
-      const buildingId = newDocId('buildings');
-      const fyId = newDocId(`buildings/${buildingId}/fiscalYears`);
+      const deptId = newDocId('departments');
+      const fyId = newDocId(`departments/${deptId}/fiscalYears`);
 
-      const fyLabel =
-        form.fyLabel.trim() ||
-        `AY ${new Date(form.fyStart).getFullYear()}–${new Date(form.fyEnd).getFullYear()}`;
-
-      const batch = getBatch();
-
-      batchSet(batch, `buildings/${buildingId}`, {
-        name: form.buildingName.trim(),
-        type: form.buildingType.trim(),
-        organizationId: null,
+      // Step 1 (sequential): create the department so subsequent rule checks
+      // (which do get(department)) can verify the user's admin role.
+      await setDocument(`departments/${deptId}`, {
+        name: form.deptName.trim(),
+        shortName: form.deptShortName.trim() || form.deptName.trim(),
         roles: { [user.uid]: 'admin' },
         activeFiscalYearId: fyId,
         settings: {
-          splitPeriods: form.splitPeriods,
-          splitPeriodNames: form.splitPeriods ? form.splitPeriodNames : null,
           reconciliationCycle: form.reconciliationCycle,
-          eventIntegration: 'free_text',
-          trackPersonalBudgets: form.trackPersonalBudgets,
-          subGroupingLabel: form.subGroupingLabel.trim() || null,
         },
         createdAt: serverTimestamp(),
         createdBy: user.uid,
         archivedAt: null,
       });
 
-      batchSet(batch, `buildings/${buildingId}/fiscalYears/${fyId}`, {
+      // Step 2: batch the fiscal year + (optionally) seed structure + user doc.
+      const batch = getBatch();
+
+      const fyLabel = `AY ${form.fyStartYear}–${form.fyStartYear + 1}`;
+      batchSet(batch, `departments/${deptId}/fiscalYears/${fyId}`, {
         label: fyLabel,
-        startDate: toTimestamp(form.fyStart),
-        endDate: toTimestamp(form.fyEnd),
-        splitDate: form.splitPeriods && form.splitDate ? toTimestamp(form.splitDate) : null,
+        startYear: form.fyStartYear,
+        startDate: toTimestamp(startDate),
+        endDate: toTimestamp(endDate),
+        fallStart: form.fallStart ? toTimestamp(form.fallStart) : null,
+        fallEnd: form.fallEnd ? toTimestamp(form.fallEnd) : null,
+        springStart: form.springStart ? toTimestamp(form.springStart) : null,
+        springEnd: form.springEnd ? toTimestamp(form.springEnd) : null,
         status: 'active',
         createdAt: serverTimestamp(),
       });
 
+      const seededAreaIds = [];
+      const seededBuildingIds = [];
+      const seededComplexIds = [];
+      let homeBuildingId = null;
+
+      if (seedDefaults) {
+        // Pre-allocate IDs so we can wire up references in one batch.
+        const areaIdByCode = {};
+        DEFAULT_AREAS.forEach((a) => {
+          areaIdByCode[a.code] = newDocId('areas');
+        });
+        const buildingIdByCode = {};
+        DEFAULT_BUILDINGS.forEach((b) => {
+          buildingIdByCode[b.code] = newDocId('buildings');
+        });
+
+        DEFAULT_AREAS.forEach((a) => {
+          const id = areaIdByCode[a.code];
+          batchSet(batch, `areas/${id}`, {
+            departmentId: deptId,
+            code: a.code,
+            name: a.name,
+            roles: { [user.uid]: 'admin' },
+            createdAt: serverTimestamp(),
+            createdBy: user.uid,
+            archivedAt: null,
+          });
+          seededAreaIds.push(id);
+        });
+
+        DEFAULT_BUILDINGS.forEach((b) => {
+          const id = buildingIdByCode[b.code];
+          const areaId = areaIdByCode[b.areaCode];
+          batchSet(batch, `buildings/${id}`, {
+            departmentId: deptId,
+            areaId,
+            complexId: null,
+            code: b.code,
+            name: b.name,
+            roles: { [user.uid]: 'admin' },
+            settings: {},
+            createdAt: serverTimestamp(),
+            createdBy: user.uid,
+            archivedAt: null,
+          });
+          seededBuildingIds.push(id);
+        });
+
+        if (form.homeBuildingCode && buildingIdByCode[form.homeBuildingCode]) {
+          homeBuildingId = buildingIdByCode[form.homeBuildingCode];
+        }
+
+        DEFAULT_COMPLEXES.forEach((c) => {
+          const id = newDocId('complexes');
+          const memberBuildingIds = c.buildingCodes.map((code) => buildingIdByCode[code]);
+          batchSet(batch, `complexes/${id}`, {
+            departmentId: deptId,
+            areaId: areaIdByCode[c.areaCode],
+            code: c.code,
+            name: c.name,
+            buildingIds: memberBuildingIds,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid,
+          });
+          seededComplexIds.push(id);
+        });
+      }
+
+      // Update user doc with the IDs they now have access to.
+      const userUpdate = {
+        departmentIds: arrayUnion(deptId),
+      };
+      if (seededAreaIds.length) userUpdate.areaIds = arrayUnion(...seededAreaIds);
+      if (seededBuildingIds.length) userUpdate.buildingIds = arrayUnion(...seededBuildingIds);
+      if (seededComplexIds.length) userUpdate.complexIds = arrayUnion(...seededComplexIds);
+      if (homeBuildingId) userUpdate.homeBuildingId = homeBuildingId;
+      batchUpdate(batch, `users/${user.uid}`, userUpdate);
+
       await batch.commit();
-      navigate('/admin/categories');
+      navigate('/');
     } catch (err) {
       console.error(err);
-      setError('Failed to create building. Please try again.');
+      setError(err.message || 'Failed to create department. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -109,28 +221,27 @@ export default function Setup() {
       <div className="w-full max-w-xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">{APP_NAME}</h1>
-          <p className="mt-2 text-gray-500">Let's set up your building</p>
+          <p className="mt-2 text-gray-500">Let's set up your department</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
             <div>
-              <h2 className="text-base font-semibold text-gray-800 mb-3">Building Info</h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-3">Department</h2>
               <div className="space-y-3">
                 <Input
-                  label="Building / Area Name"
-                  id="buildingName"
+                  label="Department Name"
+                  id="deptName"
                   required
-                  value={form.buildingName}
-                  onChange={(e) => set('buildingName', e.target.value)}
-                  placeholder="ResEd Area"
+                  value={form.deptName}
+                  onChange={(e) => set('deptName', e.target.value)}
                 />
                 <Input
-                  label="Type (optional descriptor)"
-                  id="buildingType"
-                  value={form.buildingType}
-                  onChange={(e) => set('buildingType', e.target.value)}
-                  placeholder="Residential Education"
+                  label="Short Name (used in headers)"
+                  id="deptShortName"
+                  value={form.deptShortName}
+                  onChange={(e) => set('deptShortName', e.target.value)}
+                  placeholder="UB ResLife"
                 />
               </div>
             </div>
@@ -138,117 +249,117 @@ export default function Setup() {
             <div>
               <h2 className="text-base font-semibold text-gray-800 mb-3">Fiscal Year</h2>
               <div className="space-y-3">
-                <Input
-                  label="Label (optional)"
-                  id="fyLabel"
-                  value={form.fyLabel}
-                  onChange={(e) => set('fyLabel', e.target.value)}
-                  placeholder="AY 2025–2026"
-                  helpText="Leave blank to auto-generate from dates."
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Academic Year
+                  </label>
+                  <select
+                    value={form.fyStartYear}
+                    onChange={(e) => onYearChange(e.target.value)}
+                    className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {fyOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Input
                     label="Start Date"
                     id="fyStart"
                     type="date"
-                    required
-                    value={form.fyStart}
-                    onChange={(e) => set('fyStart', e.target.value)}
+                    value={form.fyStartDate || `${form.fyStartYear}-08-01`}
+                    onChange={(e) => set('fyStartDate', e.target.value)}
                   />
                   <Input
                     label="End Date"
                     id="fyEnd"
                     type="date"
-                    required
-                    value={form.fyEnd}
-                    onChange={(e) => set('fyEnd', e.target.value)}
+                    value={form.fyEndDate || `${form.fyStartYear + 1}-07-31`}
+                    onChange={(e) => set('fyEndDate', e.target.value)}
                   />
                 </div>
               </div>
             </div>
 
             <div>
-              <h2 className="text-base font-semibold text-gray-800 mb-3">Period Split</h2>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.splitPeriods}
-                  onChange={(e) => set('splitPeriods', e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              <h2 className="text-base font-semibold text-gray-800 mb-3">
+                Periods <span className="text-xs text-gray-400 font-normal">(optional)</span>
+              </h2>
+              <p className="text-xs text-gray-500 mb-3">
+                Building budgets that run on a Fall/Spring split can use these dates.
+                Leave blank for budgets that run year-round.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Fall Start"
+                  id="fallStart"
+                  type="date"
+                  value={form.fallStart}
+                  onChange={(e) => set('fallStart', e.target.value)}
                 />
-                <span className="text-sm text-gray-700">Split into two periods (e.g. Fall / Spring)</span>
-              </label>
-
-              {form.splitPeriods && (
-                <div className="mt-3 space-y-3 pl-7">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Input
-                      label="Period 1 Name"
-                      id="period1"
-                      value={form.splitPeriodNames[0]}
-                      onChange={(e) =>
-                        set('splitPeriodNames', [e.target.value, form.splitPeriodNames[1]])
-                      }
-                    />
-                    <Input
-                      label="Period 2 Name"
-                      id="period2"
-                      value={form.splitPeriodNames[1]}
-                      onChange={(e) =>
-                        set('splitPeriodNames', [form.splitPeriodNames[0], e.target.value])
-                      }
-                    />
-                  </div>
-                  <Input
-                    label="Split Date (end of Period 1)"
-                    id="splitDate"
-                    type="date"
-                    required
-                    value={form.splitDate}
-                    onChange={(e) => set('splitDate', e.target.value)}
-                    helpText="Transactions on or before this date are Period 1."
-                  />
-                </div>
-              )}
+                <Input
+                  label="Fall End"
+                  id="fallEnd"
+                  type="date"
+                  value={form.fallEnd}
+                  onChange={(e) => set('fallEnd', e.target.value)}
+                />
+                <Input
+                  label="Spring Start"
+                  id="springStart"
+                  type="date"
+                  value={form.springStart}
+                  onChange={(e) => set('springStart', e.target.value)}
+                />
+                <Input
+                  label="Spring End"
+                  id="springEnd"
+                  type="date"
+                  value={form.springEnd}
+                  onChange={(e) => set('springEnd', e.target.value)}
+                />
+              </div>
             </div>
 
             <div>
               <h2 className="text-base font-semibold text-gray-800 mb-3">Settings</h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reconciliation Cycle
-                  </label>
-                  <select
-                    value={form.reconciliationCycle}
-                    onChange={(e) => set('reconciliationCycle', e.target.value)}
-                    className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {RECONCILIATION_CYCLES.map((c) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.trackPersonalBudgets}
-                    onChange={(e) => set('trackPersonalBudgets', e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">Track personal budgets per staff member</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reconciliation Cycle
                 </label>
-
-                <Input
-                  label="Sub-grouping Label (optional)"
-                  id="subGroupingLabel"
-                  value={form.subGroupingLabel}
-                  onChange={(e) => set('subGroupingLabel', e.target.value)}
-                  placeholder="Center"
-                  helpText="E.g. 'Center' — lets you tag expenses to a sub-location. Leave blank to disable."
-                />
+                <select
+                  value={form.reconciliationCycle}
+                  onChange={(e) => set('reconciliationCycle', e.target.value)}
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {RECONCILIATION_CYCLES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
               </div>
+            </div>
+
+            <div>
+              <h2 className="text-base font-semibold text-gray-800 mb-3">
+                Your Home Building <span className="text-xs text-gray-400 font-normal">(when loading the UB ResLife structure)</span>
+              </h2>
+              <p className="text-xs text-gray-500 mb-3">
+                The building you'll land on after setup. You can switch scopes anytime; this just sets the default.
+              </p>
+              <select
+                value={form.homeBuildingCode}
+                onChange={(e) => set('homeBuildingCode', e.target.value)}
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {buildingsByArea.map((g) => (
+                  <optgroup key={g.area.code} label={g.area.name}>
+                    {g.buildings.map((b) => (
+                      <option key={b.code} value={b.code}>{b.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
 
             {error && (
@@ -257,9 +368,28 @@ export default function Setup() {
               </p>
             )}
 
-            <Button type="submit" loading={loading} disabled={loading} className="w-full" size="lg">
-              Create Building & Continue
-            </Button>
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={() => handleSubmit(true)}
+                loading={loading}
+                disabled={loading}
+                className="w-full"
+                size="lg"
+              >
+                Create & Load UB ResLife Structure
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleSubmit(false)}
+                loading={loading}
+                disabled={loading}
+                variant="secondary"
+                className="w-full"
+              >
+                Create Department Only (add areas & buildings later)
+              </Button>
+            </div>
           </form>
         </div>
       </div>

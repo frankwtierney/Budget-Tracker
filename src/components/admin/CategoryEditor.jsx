@@ -1,41 +1,44 @@
 import { useState, useEffect } from 'react';
-import { useBuilding } from '../../contexts/BuildingContext';
+import { useOrg } from '../../contexts/BuildingContext';
 import {
   subscribeToCollection,
   addDocument,
   updateDocument,
   deleteDocument,
-  serverTimestamp,
-  where,
   orderBy,
 } from '../../lib/firestore';
-import { formatCurrency } from '../../lib/format';
 import Button from '../shared/Button';
 import Input from '../shared/Input';
 import Modal from '../shared/Modal';
 
-export default function CategoryEditor({ building }) {
-  const { fiscalYear } = useBuilding();
+// Department-level shared category schema. Names + structure live here and
+// are shared across every building in the department. Per-building, per-FY
+// dollar amounts live in /buildings/{bid}/allocations/{fyId} and are edited
+// in AllocationEditor.
+
+export default function CategoryEditor() {
+  const { activeDepartment } = useOrg();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [umbrellaModal, setUmbrellaModal] = useState(null); // null | 'new' | category
+  const [categoryModal, setCategoryModal] = useState(null); // null | 'new' | category
   const [subModal, setSubModal] = useState(null); // null | { category, sub? }
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
+  const deptId = activeDepartment?.id;
+
   useEffect(() => {
-    if (!building?.id || !fiscalYear?.id) return;
+    if (!deptId) return;
     const unsub = subscribeToCollection(
-      `buildings/${building.id}/categories`,
+      `departments/${deptId}/categories`,
       setCategories,
-      where('fiscalYearId', '==', fiscalYear.id),
       orderBy('order', 'asc')
     );
     setLoading(false);
     return unsub;
-  }, [building?.id, fiscalYear?.id]);
+  }, [deptId]);
 
-  if (!fiscalYear) {
-    return <p className="text-gray-400">No active fiscal year found.</p>;
+  if (!activeDepartment) {
+    return <p className="text-gray-400">No active department.</p>;
   }
 
   return (
@@ -43,9 +46,12 @@ export default function CategoryEditor({ building }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Categories</h2>
-          <p className="text-sm text-gray-500">{fiscalYear.label}</p>
+          <p className="text-sm text-gray-500">
+            Shared across all buildings in {activeDepartment.shortName || activeDepartment.name}.
+            Per-building dollar amounts are set in Allocations.
+          </p>
         </div>
-        <Button onClick={() => setUmbrellaModal('new')}>+ Add Umbrella</Button>
+        <Button onClick={() => setCategoryModal('new')}>+ Add Category</Button>
       </div>
 
       {loading ? (
@@ -53,18 +59,17 @@ export default function CategoryEditor({ building }) {
       ) : categories.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg">
           <p className="text-gray-400">No categories yet.</p>
-          <p className="text-sm text-gray-400 mt-1">Add an umbrella category to get started.</p>
+          <p className="text-sm text-gray-400 mt-1">Add a category to get started.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {categories.map((cat) => (
-            <UmbrellaCard
+            <CategoryCard
               key={cat.id}
               category={cat}
-              building={building}
-              fiscalYear={fiscalYear}
-              onEdit={() => setUmbrellaModal(cat)}
-              onDelete={() => setDeleteConfirm({ type: 'umbrella', item: cat })}
+              deptId={deptId}
+              onEdit={() => setCategoryModal(cat)}
+              onDelete={() => setDeleteConfirm({ type: 'category', item: cat })}
               onAddSub={() => setSubModal({ category: cat })}
               onEditSub={(sub) => setSubModal({ category: cat, sub })}
               onDeleteSub={(sub) => setDeleteConfirm({ type: 'sub', item: sub, category: cat })}
@@ -73,12 +78,11 @@ export default function CategoryEditor({ building }) {
         </div>
       )}
 
-      <UmbrellaModal
-        isOpen={umbrellaModal !== null}
-        onClose={() => setUmbrellaModal(null)}
-        existing={umbrellaModal !== 'new' ? umbrellaModal : null}
-        building={building}
-        fiscalYear={fiscalYear}
+      <CategoryModal
+        isOpen={categoryModal !== null}
+        onClose={() => setCategoryModal(null)}
+        existing={categoryModal !== 'new' ? categoryModal : null}
+        deptId={deptId}
         nextOrder={categories.length}
       />
 
@@ -87,36 +91,61 @@ export default function CategoryEditor({ building }) {
         onClose={() => setSubModal(null)}
         category={subModal?.category}
         existing={subModal?.sub ?? null}
-        building={building}
+        deptId={deptId}
       />
 
       <DeleteConfirmModal
         isOpen={deleteConfirm !== null}
         onClose={() => setDeleteConfirm(null)}
         item={deleteConfirm}
-        building={building}
+        deptId={deptId}
       />
     </div>
   );
 }
 
-function UmbrellaCard({ category, onEdit, onDelete, onAddSub, onEditSub, onDeleteSub }) {
+function CategoryCard({ category, onEdit, onDelete, onAddSub, onEditSub, onDeleteSub }) {
   const subs = category.subCategories ?? [];
-  const total = subs.reduce((sum, s) => sum + (s.allocation ?? 0), 0);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
         <div className="flex items-center gap-3">
           <span className="font-semibold text-gray-800">{category.name}</span>
-          <span className="text-sm text-gray-500">{formatCurrency(total)} total allocation</span>
+          {category.requiresEvent && (
+            <span className="text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+              Requires event
+            </span>
+          )}
+          <span className="text-sm text-gray-500">
+            {subs.length} sub-{subs.length === 1 ? 'category' : 'categories'}
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onAddSub}>+ Sub-category</Button>
-          <Button variant="ghost" size="sm" onClick={onEdit}>Edit</Button>
-          <Button variant="ghost" size="sm" onClick={onDelete}>
-            <TrashIcon className="w-4 h-4 text-red-400" />
-          </Button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onAddSub}
+            title="Add sub-category"
+            aria-label="Add sub-category"
+            className="text-gray-400 hover:text-blue-600 p-1 rounded"
+          >
+            <PlusIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onEdit}
+            title="Edit"
+            aria-label="Edit category"
+            className="text-gray-400 hover:text-gray-700 p-1 rounded"
+          >
+            <PencilIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onDelete}
+            title="Delete"
+            aria-label="Delete category"
+            className="text-gray-400 hover:text-red-500 p-1 rounded"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -125,7 +154,6 @@ function UmbrellaCard({ category, onEdit, onDelete, onAddSub, onEditSub, onDelet
           <thead>
             <tr className="border-b border-gray-100">
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Sub-category</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-gray-400 uppercase">Allocation</th>
               <th className="px-4 py-2 w-20" />
             </tr>
           </thead>
@@ -136,7 +164,6 @@ function UmbrellaCard({ category, onEdit, onDelete, onAddSub, onEditSub, onDelet
               .map((sub) => (
                 <tr key={sub.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2 text-gray-700">{sub.name}</td>
-                  <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(sub.allocation)}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
@@ -166,9 +193,10 @@ function UmbrellaCard({ category, onEdit, onDelete, onAddSub, onEditSub, onDelet
   );
 }
 
-function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOrder }) {
+function CategoryModal({ isOpen, onClose, existing, deptId, nextOrder }) {
   const [name, setName] = useState('');
   const [order, setOrder] = useState(0);
+  const [requiresEvent, setRequiresEvent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -176,6 +204,7 @@ function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOr
     if (isOpen) {
       setName(existing?.name ?? '');
       setOrder(existing?.order ?? nextOrder);
+      setRequiresEvent(existing?.requiresEvent ?? false);
       setError('');
     }
   }, [isOpen, existing, nextOrder]);
@@ -185,11 +214,11 @@ function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOr
     if (!name.trim()) return setError('Name is required.');
     setLoading(true);
     try {
-      const path = `buildings/${building.id}/categories`;
+      const path = `departments/${deptId}/categories`;
       const data = {
-        fiscalYearId: fiscalYear.id,
         name: name.trim(),
         order: Number(order),
+        requiresEvent,
         subCategories: existing?.subCategories ?? [],
       };
       if (existing) {
@@ -209,13 +238,13 @@ function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOr
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={existing ? 'Edit Umbrella Category' : 'Add Umbrella Category'}
+      title={existing ? 'Edit Category' : 'Add Category'}
       size="sm"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Name"
-          id="umbrellaName"
+          id="categoryName"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -224,12 +253,27 @@ function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOr
         />
         <Input
           label="Display Order"
-          id="umbrellaOrder"
+          id="categoryOrder"
           type="number"
           min={0}
           value={order}
           onChange={(e) => setOrder(e.target.value)}
         />
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={requiresEvent}
+            onChange={(e) => setRequiresEvent(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-700">
+            Require an event for transactions in this category
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Use for programming/event categories where every expense should tie to a specific event
+              (UB Linked Event ID and/or event title).
+            </span>
+          </span>
+        </label>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -240,9 +284,8 @@ function UmbrellaModal({ isOpen, onClose, existing, building, fiscalYear, nextOr
   );
 }
 
-function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
+function SubCategoryModal({ isOpen, onClose, category, existing, deptId }) {
   const [name, setName] = useState('');
-  const [allocation, setAllocation] = useState('');
   const [order, setOrder] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -250,7 +293,6 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
   useEffect(() => {
     if (isOpen) {
       setName(existing?.name ?? '');
-      setAllocation(existing?.allocation ?? '');
       setOrder(existing?.order ?? (category?.subCategories?.length ?? 0));
       setError('');
     }
@@ -259,8 +301,6 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!name.trim()) return setError('Name is required.');
-    if (allocation === '' || isNaN(Number(allocation)) || Number(allocation) < 0)
-      return setError('Allocation must be a non-negative number.');
 
     setLoading(true);
     try {
@@ -268,7 +308,6 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
       const newSub = {
         id: existing?.id ?? crypto.randomUUID(),
         name: name.trim(),
-        allocation: Number(allocation),
         order: Number(order),
       };
 
@@ -280,7 +319,7 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
         subs.push(newSub);
       }
 
-      await updateDocument(`buildings/${building.id}/categories/${category.id}`, {
+      await updateDocument(`departments/${deptId}/categories/${category.id}`, {
         subCategories: subs,
       });
       onClose();
@@ -309,17 +348,6 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
           autoFocus
         />
         <Input
-          label="Allocation ($)"
-          id="subAllocation"
-          type="number"
-          min={0}
-          step="0.01"
-          required
-          value={allocation}
-          onChange={(e) => setAllocation(e.target.value)}
-          placeholder="0.00"
-        />
-        <Input
           label="Display Order"
           id="subOrder"
           type="number"
@@ -327,6 +355,9 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
           value={order}
           onChange={(e) => setOrder(e.target.value)}
         />
+        <p className="text-xs text-gray-500">
+          Dollar allocation is set per building in the Allocations tab.
+        </p>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -337,17 +368,17 @@ function SubCategoryModal({ isOpen, onClose, category, existing, building }) {
   );
 }
 
-function DeleteConfirmModal({ isOpen, onClose, item, building }) {
+function DeleteConfirmModal({ isOpen, onClose, item, deptId }) {
   const [loading, setLoading] = useState(false);
 
   async function handleDelete() {
     setLoading(true);
     try {
-      if (item.type === 'umbrella') {
-        await deleteDocument(`buildings/${building.id}/categories/${item.item.id}`);
+      if (item.type === 'category') {
+        await deleteDocument(`departments/${deptId}/categories/${item.item.id}`);
       } else {
         const subs = (item.category.subCategories ?? []).filter((s) => s.id !== item.item.id);
-        await updateDocument(`buildings/${building.id}/categories/${item.category.id}`, {
+        await updateDocument(`departments/${deptId}/categories/${item.category.id}`, {
           subCategories: subs,
         });
       }
@@ -364,7 +395,7 @@ function DeleteConfirmModal({ isOpen, onClose, item, building }) {
       <p className="text-sm text-gray-600 mb-4">
         Are you sure you want to delete{' '}
         <span className="font-semibold">
-          {item?.type === 'umbrella' ? item.item.name : item?.item?.name}
+          {item?.type === 'category' ? item.item.name : item?.item?.name}
         </span>
         ? This cannot be undone.
       </p>
@@ -388,6 +419,14 @@ function PencilIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
     </svg>
   );
 }

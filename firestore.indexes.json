@@ -5,6 +5,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "receiptDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
         { "fieldPath": "categoryId", "order": "ASCENDING" },
         { "fieldPath": "transactionDate", "order": "ASCENDING" }
       ]
@@ -40,6 +48,23 @@
       "fields": [
         { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
         { "fieldPath": "reconciliationStatus", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "staffMembers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "lastName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "staffMembers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fiscalYearId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "DESCENDING" },
+        { "fieldPath": "lastName", "order": "ASCENDING" }
       ]
     }
   ],
