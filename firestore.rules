@@ -7,6 +7,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ---- System-level (Super Admin) ----
+    // The single doc system/config holds organization-wide settings
+    // (building types, period names) and a roles map for Super Admins.
+    function isSuperAdmin() {
+      return isAuth() &&
+        exists(/databases/$(database)/documents/system/config) &&
+        get(/databases/$(database)/documents/system/config).data.roles[request.auth.uid] == 'admin';
+    }
+
     // ---- Department roles ----
     function deptRole(deptId) {
       return get(/databases/$(database)/documents/departments/$(deptId)).data.roles[request.auth.uid];
@@ -90,10 +99,13 @@ service cloud.firestore {
     }
 
     // ---- Departments ----
+    // Super Admins have global read/update on the structure doc itself (used by
+    // the System → Structure editor). Subcollections below are unchanged and
+    // still gate on department roles only.
     match /departments/{deptId} {
-      allow read: if isDeptMember(deptId);
+      allow read: if isSuperAdmin() || isDeptMember(deptId);
       allow create: if isAuth();
-      allow update: if isDeptAdmin(deptId);
+      allow update: if isSuperAdmin() || isDeptAdmin(deptId);
       allow delete: if false;
 
       match /fiscalYears/{fyId} {
@@ -143,10 +155,12 @@ service cloud.firestore {
     }
 
     // ---- Areas ----
+    // Super Admins can read/create/update the area structure doc globally
+    // (System → Structure editor). Area subcollections below are unchanged.
     match /areas/{areaId} {
-      allow read: if canReadArea(areaId);
-      allow create: if isAuth() && isDeptAdmin(request.resource.data.departmentId);
-      allow update: if canAdminArea(areaId);
+      allow read: if isSuperAdmin() || canReadArea(areaId);
+      allow create: if isAuth() && (isSuperAdmin() || isDeptAdmin(request.resource.data.departmentId));
+      allow update: if isSuperAdmin() || canAdminArea(areaId);
       allow delete: if false;
 
       match /categories/{catId} {
@@ -180,13 +194,16 @@ service cloud.firestore {
     }
 
     // ---- Buildings ----
+    // Super Admins can read/create/update the building structure doc globally
+    // (System → Structure editor). Building subcollections below are unchanged.
     match /buildings/{buildingId} {
-      allow read: if canReadBuilding(buildingId);
+      allow read: if isSuperAdmin() || canReadBuilding(buildingId);
       allow create: if isAuth() && (
+        isSuperAdmin() ||
         isDeptAdmin(request.resource.data.departmentId) ||
         isAreaAdmin(request.resource.data.areaId)
       );
-      allow update: if canAdminBuilding(buildingId);
+      allow update: if isSuperAdmin() || canAdminBuilding(buildingId);
       allow delete: if false;
 
       match /categories/{catId} {
@@ -225,6 +242,19 @@ service cloud.firestore {
         allow create: if canEditBuilding(buildingId);
         allow update, delete: if false;
       }
+    }
+
+    // ---- System config ----
+    // Bootstrap rule: any authenticated user can CREATE system/config if it
+    // doesn't exist yet, but only by writing themselves into roles as 'admin'.
+    // After creation, only Super Admins can update.
+    match /system/{docId} {
+      allow read: if isAuth();
+      allow create: if isAuth() &&
+        docId == 'config' &&
+        request.resource.data.roles[request.auth.uid] == 'admin';
+      allow update: if isSuperAdmin();
+      allow delete: if false;
     }
 
     // ---- Complexes ----

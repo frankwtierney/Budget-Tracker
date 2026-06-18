@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { BuildingProvider } from './contexts/BuildingContext';
 import { useBuilding } from './contexts/BuildingContext';
+import { SystemProvider } from './contexts/SystemContext';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
 import Login from './pages/Login';
@@ -72,9 +73,11 @@ export default function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <BuildingProvider>
-                  <AppRoutes />
-                </BuildingProvider>
+                <SystemProvider>
+                  <BuildingProvider>
+                    <AppRoutes />
+                  </BuildingProvider>
+                </SystemProvider>
               </ProtectedRoute>
             }
           />

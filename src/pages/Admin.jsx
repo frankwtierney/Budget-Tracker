@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useBuilding } from '../contexts/BuildingContext';
+import { useSystem } from '../contexts/SystemContext';
 import CategoryEditor from '../components/admin/CategoryEditor';
 import AllocationEditor from '../components/admin/AllocationEditor';
 import StrategyTypeEditor from '../components/admin/StrategyTypeEditor';
@@ -7,6 +8,7 @@ import StaffRoster from '../components/admin/StaffRoster';
 import VendorList from '../components/admin/VendorList';
 import PaymentSourcesList from '../components/admin/PaymentSourcesList';
 import BuildingSettings from '../components/admin/BuildingSettings';
+import SystemPanel from '../components/admin/system/SystemPanel';
 
 const ADMIN_NAV = [
   { to: '/admin/categories', label: 'Categories' },
@@ -20,10 +22,18 @@ const ADMIN_NAV = [
 
 export default function Admin() {
   const { building } = useBuilding();
+  const { isSuperAdmin, isUnclaimed } = useSystem();
 
   if (!building) {
     return <div className="flex items-center justify-center h-64 text-gray-400">Loading...</div>;
   }
+
+  // Show System tab to existing Super Admins, or to anyone when no Super Admin
+  // exists yet (so the first user can claim ownership).
+  const showSystem = isSuperAdmin || isUnclaimed;
+  const nav = showSystem
+    ? [...ADMIN_NAV, { to: '/admin/system', label: 'System' }]
+    : ADMIN_NAV;
 
   return (
     <div className="space-y-6">
@@ -33,7 +43,7 @@ export default function Admin() {
       </div>
 
       <div className="flex gap-1 border-b border-gray-200">
-        {ADMIN_NAV.map(({ to, label }) => (
+        {nav.map(({ to, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -58,6 +68,7 @@ export default function Admin() {
         <Route path="vendors" element={<VendorList building={building} />} />
         <Route path="payment-sources" element={<PaymentSourcesList />} />
         <Route path="settings" element={<BuildingSettings building={building} />} />
+        {showSystem && <Route path="system/*" element={<SystemPanel />} />}
         <Route index element={<CategoryEditor />} />
       </Routes>
     </div>

@@ -68,3 +68,8 @@ export function isAdminOf(doc, uid) {
   const r = roleOn(doc, uid);
   return r === 'admin';
 }
+
+// System-level Super Admin check (role 'admin' on the system/config doc).
+export function isSuperAdmin(systemDoc, uid) {
+  return roleOn(systemDoc, uid) === 'admin';
+}
