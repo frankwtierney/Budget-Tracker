@@ -4,6 +4,7 @@ import { useSystem } from '../../../contexts/SystemContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import Button from '../../shared/Button';
 import StructureEditor from './StructureEditor';
+import BuildingTypesEditor from './BuildingTypesEditor';
 
 const SYSTEM_NAV = [
   { to: '/admin/system/structure', label: 'Structure' },
@@ -56,7 +57,7 @@ export default function SystemPanel() {
 
       <Routes>
         <Route path="structure" element={<StructureEditor />} />
-        <Route path="types" element={<Placeholder title="Building Types" />} />
+        <Route path="types" element={<BuildingTypesEditor />} />
         <Route path="periods" element={<Placeholder title="Periods" />} />
         <Route index element={<Navigate to="structure" replace />} />
       </Routes>

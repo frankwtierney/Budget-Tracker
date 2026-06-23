@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useSystem } from '../../../contexts/SystemContext';
 import {
   subscribeToCollection,
   addDocument,
   updateDocument,
   serverTimestamp,
+  getBatch,
+  batchUpdate,
 } from '../../../lib/firestore';
 import Button from '../../shared/Button';
 import Input from '../../shared/Input';
@@ -21,7 +24,21 @@ import Modal from '../../shared/Modal';
 
 const byCode = (a, b) => (a.code || '').localeCompare(b.code || '');
 
+// Above this many types the radio matrix gets too wide — fall back to a
+// per-row dropdown instead of one radio column per type.
+const MATRIX_MAX_TYPES = 6;
+
 export default function StructureEditor() {
+  const { systemDoc } = useSystem();
+  const buildingTypes = useMemo(
+    () => (systemDoc?.buildingTypes ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [systemDoc]
+  );
+  const typesById = useMemo(
+    () => Object.fromEntries(buildingTypes.map((t) => [t.id, t])),
+    [buildingTypes]
+  );
+
   const [departments, setDepartments] = useState([]);
   const [areas, setAreas] = useState([]);
   const [buildings, setBuildings] = useState([]);
@@ -29,6 +46,7 @@ export default function StructureEditor() {
 
   const [areaModal, setAreaModal] = useState(null); // null | { departmentId } | area
   const [buildingModal, setBuildingModal] = useState(null); // null | { areaId, departmentId } | building
+  const [mode, setMode] = useState('view'); // 'view' | 'assign' (bulk type matrix)
 
   useEffect(() => {
     const unsubD = subscribeToCollection('departments', (docs) => {
@@ -74,13 +92,27 @@ export default function StructureEditor() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">Structure</h2>
-        <p className="text-sm text-gray-500">
-          The org skeleton — Departments, their Areas, and which Buildings belong
-          to each. Edits here update the same records the sidebar "Viewing"
-          picker uses.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Structure</h2>
+          <p className="text-sm text-gray-500">
+            The org skeleton — Departments, their Areas, and which Buildings belong
+            to each. Edits here update the same records the sidebar "Viewing"
+            picker uses.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          onClick={() => setMode((m) => (m === 'assign' ? 'view' : 'assign'))}
+          disabled={mode !== 'assign' && buildingTypes.length === 0}
+          title={
+            buildingTypes.length === 0
+              ? 'Add building types first (Building Types tab)'
+              : undefined
+          }
+        >
+          {mode === 'assign' ? 'Done' : 'Assign Types'}
+        </Button>
       </div>
 
       {loading ? (
@@ -92,6 +124,14 @@ export default function StructureEditor() {
             Run Setup to seed the initial structure.
           </p>
         </div>
+      ) : mode === 'assign' ? (
+        <AssignTypesView
+          departments={departments}
+          areasByDept={areasByDept}
+          buildingsByArea={buildingsByArea}
+          orphanBuildings={orphanBuildings}
+          buildingTypes={buildingTypes}
+        />
       ) : (
         <div className="space-y-5">
           {departments
@@ -103,6 +143,7 @@ export default function StructureEditor() {
                 department={dept}
                 areas={areasByDept[dept.id] ?? []}
                 buildingsByArea={buildingsByArea}
+                typesById={typesById}
                 onAddArea={() => setAreaModal({ departmentId: dept.id })}
                 onEditArea={(area) => setAreaModal(area)}
                 onAddBuilding={(area) =>
@@ -124,7 +165,12 @@ export default function StructureEditor() {
               </div>
               <ul className="divide-y divide-amber-100">
                 {orphanBuildings.map((b) => (
-                  <BuildingRow key={b.id} building={b} onEdit={() => setBuildingModal(b)} />
+                  <BuildingRow
+                    key={b.id}
+                    building={b}
+                    typesById={typesById}
+                    onEdit={() => setBuildingModal(b)}
+                  />
                 ))}
               </ul>
             </div>
@@ -146,6 +192,7 @@ export default function StructureEditor() {
         defaults={buildingModal && !buildingModal.id ? buildingModal : null}
         areas={areas}
         departments={departments}
+        buildingTypes={buildingTypes}
       />
     </div>
   );
@@ -155,6 +202,7 @@ function DepartmentBlock({
   department,
   areas,
   buildingsByArea,
+  typesById,
   onAddArea,
   onEditArea,
   onAddBuilding,
@@ -216,6 +264,7 @@ function DepartmentBlock({
                       <BuildingRow
                         key={b.id}
                         building={b}
+                        typesById={typesById}
                         indented
                         onEdit={() => onEditBuilding(b)}
                       />
@@ -231,15 +280,16 @@ function DepartmentBlock({
   );
 }
 
-function BuildingRow({ building, indented, onEdit }) {
+function BuildingRow({ building, typesById, indented, onEdit }) {
+  const typeName = building.typeId ? typesById?.[building.typeId]?.name : null;
   return (
     <li className={`flex items-center justify-between py-2 pr-4 ${indented ? 'pl-10' : 'pl-4'}`}>
       <div className="flex items-center gap-2 min-w-0">
         <span className="font-mono text-xs text-gray-400 shrink-0">{building.code}</span>
         <span className="text-sm text-gray-700 truncate">{building.name}</span>
-        {building.type && (
+        {typeName && (
           <span className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
-            {building.type}
+            {typeName}
           </span>
         )}
       </div>
@@ -337,11 +387,11 @@ function AreaModal({ isOpen, onClose, existing, departmentId }) {
   );
 }
 
-function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments }) {
+function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments, buildingTypes }) {
   const { user } = useAuth();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [type, setType] = useState('');
+  const [typeId, setTypeId] = useState('');
   const [areaId, setAreaId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -350,7 +400,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
     if (isOpen) {
       setName(existing?.name ?? '');
       setCode(existing?.code ?? '');
-      setType(existing?.type ?? '');
+      setTypeId(existing?.typeId ?? '');
       setAreaId(existing?.areaId ?? defaults?.areaId ?? '');
       setError('');
     }
@@ -384,7 +434,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
         const data = {
           name: name.trim(),
           code: code.trim().toUpperCase(),
-          type: type.trim() || null,
+          typeId: typeId || null,
           areaId,
           departmentId: targetArea.departmentId,
         };
@@ -400,7 +450,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
           complexId: null,
           name: name.trim(),
           code: code.trim().toUpperCase(),
-          type: type.trim() || null,
+          typeId: typeId || null,
           roles: {},
           settings: {},
           createdAt: serverTimestamp(),
@@ -473,14 +523,27 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
           )}
         </div>
 
-        <Input
-          label="Type"
-          id="buildingType"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          placeholder="Residence Hall, Success Center, etc."
-          helpText="Free text for now — becomes a picker once Building Types are defined."
-        />
+        <div>
+          <label htmlFor="buildingType" className="block text-sm font-medium text-gray-700 mb-1">
+            Type
+          </label>
+          <select
+            id="buildingType"
+            value={typeId}
+            onChange={(e) => setTypeId(e.target.value)}
+            className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">— None —</option>
+            {buildingTypes.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          {buildingTypes.length === 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              No building types defined yet — add them in the Building Types tab.
+            </p>
+          )}
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
@@ -489,6 +552,222 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
         </div>
       </form>
     </Modal>
+  );
+}
+
+// ---- Bulk "Assign Types" matrix mode ----
+// Same Dept → Area → Building grouping, but each building row becomes a
+// single-select radio matrix (one column per type). Clicking a cell autosaves
+// immediately; clicking a type heading bulk-sets every building in that group.
+// Falls back to a per-row dropdown when there are more types than fit cleanly.
+
+function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuildings, buildingTypes }) {
+  return (
+    <div className="space-y-5">
+      <div className="text-sm text-blue-900 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+        Click a circle to set a building's type — it saves instantly. Click a type
+        heading to set every building in that group at once.
+      </div>
+
+      {departments
+        .slice()
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        .map((dept) => {
+          const deptAreas = areasByDept[dept.id] ?? [];
+          return (
+            <div key={dept.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                <span className="font-semibold text-gray-800">
+                  {dept.shortName || dept.name}
+                </span>
+              </div>
+              {deptAreas.length === 0 ? (
+                <p className="px-4 py-4 text-sm text-gray-400 italic">No areas yet.</p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {deptAreas.map((area) => {
+                    const bs = buildingsByArea[area.id] ?? [];
+                    return (
+                      <div key={area.id} className="px-3 py-3">
+                        <div className="px-1 pb-1 text-xs font-medium text-gray-500">
+                          <span className="font-mono">{area.code}</span> — {area.name}
+                        </div>
+                        {bs.length === 0 ? (
+                          <p className="px-1 text-sm text-gray-400 italic">No buildings.</p>
+                        ) : (
+                          <AssignAreaTable
+                            groupName={area.code}
+                            buildings={bs}
+                            buildingTypes={buildingTypes}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+      {orphanBuildings.length > 0 && (
+        <div className="bg-white border border-amber-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
+            <span className="font-semibold text-amber-900 text-sm">Unassigned buildings</span>
+          </div>
+          <div className="px-3 py-3">
+            <AssignAreaTable
+              groupName="Unassigned"
+              buildings={orphanBuildings}
+              buildingTypes={buildingTypes}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssignAreaTable({ groupName, buildings, buildingTypes }) {
+  const [savingId, setSavingId] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const useDropdown = buildingTypes.length > MATRIX_MAX_TYPES;
+
+  async function setOne(buildingId, typeId) {
+    setSavingId(buildingId);
+    try {
+      await updateDocument(`buildings/${buildingId}`, { typeId: typeId || null });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function setAll(typeId) {
+    if (buildings.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const batch = getBatch();
+      buildings.forEach((b) =>
+        batchUpdate(batch, `buildings/${b.id}`, { typeId: typeId || null })
+      );
+      await batch.commit();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200">
+            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+              Building
+              {bulkBusy && <span className="ml-2 normal-case text-gray-400">saving…</span>}
+            </th>
+            {useDropdown ? (
+              <th className="px-2 py-2 text-right">
+                <span className="text-xs text-gray-400 mr-2">Set all</span>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v) setAll(v === '__none__' ? '' : v);
+                  }}
+                  aria-label={`Set type for all buildings in ${groupName}`}
+                  className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">—</option>
+                  {buildingTypes.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                  <option value="__none__">None</option>
+                </select>
+              </th>
+            ) : (
+              <>
+                {buildingTypes.map((t) => (
+                  <th key={t.id} className="px-2 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setAll(t.id)}
+                      title={`Set all in ${groupName} to ${t.name}`}
+                      className="text-xs font-medium text-gray-500 hover:text-blue-600"
+                    >
+                      {t.name}
+                    </button>
+                  </th>
+                ))}
+                <th className="px-2 py-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setAll('')}
+                    title={`Clear type for all in ${groupName}`}
+                    className="text-xs font-medium text-gray-400 hover:text-gray-600"
+                  >
+                    None
+                  </button>
+                </th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {buildings.map((b) => (
+            <tr key={b.id} className={`hover:bg-gray-50 ${savingId === b.id ? 'opacity-60' : ''}`}>
+              <td className="px-3 py-2 whitespace-nowrap">
+                <span className="font-mono text-xs text-gray-400 mr-2">{b.code}</span>
+                <span className="text-gray-700">{b.name}</span>
+              </td>
+              {useDropdown ? (
+                <td className="px-2 py-2 text-right">
+                  <select
+                    value={b.typeId ?? ''}
+                    onChange={(e) => setOne(b.id, e.target.value)}
+                    aria-label={`Type for ${b.name}`}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— None —</option>
+                    {buildingTypes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </td>
+              ) : (
+                <>
+                  {buildingTypes.map((t) => (
+                    <td key={t.id} className="px-2 py-2 text-center">
+                      <input
+                        type="radio"
+                        name={`type-${b.id}`}
+                        checked={b.typeId === t.id}
+                        onChange={() => setOne(b.id, t.id)}
+                        aria-label={`${b.name}: ${t.name}`}
+                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </td>
+                  ))}
+                  <td className="px-2 py-2 text-center">
+                    <input
+                      type="radio"
+                      name={`type-${b.id}`}
+                      checked={!b.typeId}
+                      onChange={() => setOne(b.id, '')}
+                      aria-label={`${b.name}: no type`}
+                      className="h-4 w-4 text-gray-400 border-gray-300 focus:ring-gray-400 cursor-pointer"
+                    />
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
