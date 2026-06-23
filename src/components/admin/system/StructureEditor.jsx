@@ -282,22 +282,30 @@ function DepartmentBlock({
 
 function BuildingRow({ building, typesById, indented, onEdit }) {
   const typeName = building.typeId ? typesById?.[building.typeId]?.name : null;
+  // Fixed columns — code | name | type | edit. The name track is a fixed width
+  // so the type pills always start at the same x and read as a clean
+  // left-aligned strip; the trailing 1fr is slack that the edit icon parks at
+  // the far-right end of (justify-self-end below).
   return (
-    <li className={`flex items-center justify-between py-2 pr-4 ${indented ? 'pl-10' : 'pl-4'}`}>
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-mono text-xs text-gray-400 shrink-0">{building.code}</span>
-        <span className="text-sm text-gray-700 truncate">{building.name}</span>
-        {typeName && (
-          <span className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
-            {typeName}
-          </span>
-        )}
-      </div>
+    <li
+      className={`grid grid-cols-[auto_14rem_auto_1fr] items-center gap-2 py-2 pr-4 ${
+        indented ? 'pl-10' : 'pl-4'
+      }`}
+    >
+      <span className="font-mono text-xs text-gray-400">{building.code}</span>
+      <span className="text-sm text-gray-700 truncate">{building.name}</span>
+      {typeName ? (
+        <span className="justify-self-start text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 truncate max-w-full">
+          {typeName}
+        </span>
+      ) : (
+        <span className="justify-self-start text-xs text-gray-300">—</span>
+      )}
       <button
         onClick={onEdit}
         title="Edit building"
         aria-label="Edit building"
-        className="text-gray-400 hover:text-gray-700 p-1 rounded shrink-0"
+        className="justify-self-end text-gray-400 hover:text-gray-700 p-1 rounded"
       >
         <PencilIcon className="w-4 h-4" />
       </button>
