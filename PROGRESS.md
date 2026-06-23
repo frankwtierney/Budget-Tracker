@@ -1,6 +1,6 @@
 # BudgetHub — Progress Summary
 
-_Last updated: 2026-05-12_
+_Last updated: 2026-06-23_
 
 This document summarizes work completed on BudgetHub. Sections marked **unaudited** reflect uncommitted iteration that has not been line-by-line reviewed against the original spec.
 
@@ -257,7 +257,45 @@ Full reconciliation workflow: statement imports per source (Pcard / UBF / ShopBl
 
 ---
 
-## 8. Known Deviations & Open Decisions
+## 8. Session — 2026-06-23
+
+Built out the **Super Admin "System" tab** and the **period / fiscal-year** model end to end. Commits on branch `claude/init-budgethub-project-Fd11W`: `f1e43e0`, `95342e0`, `e6526aa`, `b50d0fa` (the multi-tier org refactor `f0fd119` — Dept/Area/Building/Complex, Events page, sign-in spinner fix — also landed here, committing what Section 5 described as uncommitted).
+
+### System tab (Super Admin, global)
+
+New `src/components/admin/system/` surface, gated to Super Admins (`system/config` doc, `roles` map; first user can claim ownership). Nav: Structure · Building Types · Periods.
+
+- **`StructureEditor.jsx`** — global Dept → Area → Building tree maintenance (rename/add/reassign). Reads collections directly (not scope-limited) so a Super Admin sees the whole org. Includes a bulk **"Assign Types"** radio matrix (one column per building type; click a heading to set a whole group; falls back to a dropdown above 6 types). Building rows are a fixed CSS grid (`code | name | type | edit`) so the type pills align in a clean left column regardless of name length.
+- **`BuildingTypesEditor.jsx`** — manages building types on `system/config.buildingTypes` as `[{id, name, order}]`. Buildings reference a type by `typeId`, so renaming never breaks the link.
+- **`PeriodsEditor.jsx`** — manages org-wide period **names** on `system/config.periods` as `{ fixed:[p1,p2], extras:[] }`. `fixed` is the two primary periods (rename-only — the split is binary); `extras` is a free add/remove list for periods outside the split.
+
+### Fiscal years: single split date + editor
+
+The period split is **date-driven** and **department-scoped** — FY lives at `departments/{deptId}/fiscalYears`, and `departments/{deptId}.activeFiscalYearId` is the one the app reads, shared by every building in the department.
+
+- **Model change:** FY now carries a **single `splitDate`** (one seam: on/before → period 1, after → period 2). Dropped the old `fallStart/fallEnd/springStart/springEnd` range fields — a single split point can't create the gaps/overlaps two independent ranges can. `Setup.jsx` writes `splitDate` (one date input replacing the four).
+- **`FiscalYearEditor.jsx`** (new) — department-scoped **Admin → Fiscal Years** tab. Lists FYs (range, split date, Active badge); add/edit (pick academic year → auto label + default dates + split date); **Make active** sets `activeFiscalYearId`. Editing a legacy FY **backfills `splitDate`** from the old `fallEnd`/`springStart` so one save lights up the Summary.
+- **Access gating:** the tab is editable only by **department admins** (or Super Admins) — `canEdit = isSuperAdmin || isAdminOf(activeDepartment, uid)`, mirroring the `isDeptAdmin` Firestore rule. RHD/CD (building/area) roles get a **read-only** view.
+
+### Period config centralized (consistency)
+
+Retired the per-building period settings so every building's reports match:
+- **`SummaryView.jsx`** now derives split on/off from `fiscalYear.splitDate` and period names from `system/config.periods.fixed` — no longer from `building.settings.splitPeriods` / `splitPeriodNames`.
+- **`BuildingSettings.jsx`** Periods section is now **read-only** (shows the effective split + where it's managed) and no longer writes the retired fields. Leftover `splitPeriods*` on existing building docs are inert; no migration needed.
+
+### Manual data follow-up needed (not blocking)
+
+1. **Each existing fiscal year** needs one trip through **Admin → Fiscal Years → edit → Save** to populate `splitDate` (pre-filled from legacy `fallEnd`, else Jan 1). Until then that department's Summary shows year-round. New departments get it from Setup automatically.
+2. **System → Periods** — confirm/rename the org-wide period names (defaults seeded `FALL` / `SPRING`).
+
+### Noticed but not done
+
+- **Admin-tab gating is uneven:** only Fiscal Years (this session) and System are role-gated; the other Admin tabs (Categories, Allocations, Staff, Vendors, etc.) still render for anyone who reaches `/admin`. Firestore rules protect the *data*, but the UI shows controls that will fail on save. Broader per-tab gating is a pending cleanup.
+- **No roles-management UI yet** — there's no surface to grant the dept-admin role that the new gating checks for; assignment is still data-only. (Candidate next task: node access/roles editor in the Structure tab.)
+
+---
+
+## 9. Known Deviations & Open Decisions
 
 **Confirmed accepted by user:**
 - Email/password auth only — no Google sign-in. ("We are not a Google school.")
@@ -266,14 +304,20 @@ Full reconciliation workflow: statement imports per source (Pcard / UBF / ShopBl
 - `staffAllocations: []` array (multi-staff splits) replaces spec's single `chargedToStaffId`
 - `staffMembers.buildingCode` field
 
+**Accepted this session (2026-06-23):**
+- Fiscal years use a single `splitDate`, not Fall/Spring date ranges (single seam → no gap/overlap risk)
+- Periods are a department-wide setting (split date per FY) with org-wide names (System → Periods); per-building period config retired
+
 **Pending user decision / not yet acted on:**
-- Refactor categories from per-building (`buildings/{bid}/categories`) up to department level (`departments/{deptId}/categorySchemas`)
+- Refactor categories from per-building (`buildings/{bid}/categories`) up to department level (`departments/{deptId}/categorySchemas`) — note `SummaryView` already reads `departments/{deptId}/categories`, so the write side (`CategoryEditor`) may just need reconciling
+- Per-tab role gating across the Admin nav (only Fiscal Years + System gated so far)
+- A roles-management UI (no surface yet to grant the dept-admin role the gating checks for)
 - Field-by-field audit of the 18 modified files from the 2026-05-04 → 2026-05-11 iteration
 - Backfill `code` for existing Strategy Types (see Section 6)
 
 ---
 
-## 9. Outstanding / Future Phases
+## 10. Outstanding / Future Phases
 
 Per `02_BUILD_PLAN.md` (canonical, not on disk):
 - **Phase 2:** Multi-building support, reconciliation cycles, receipts uploads
@@ -284,7 +328,7 @@ The data model expansion in Section 5a means much of the Phase 2 multi-building 
 
 ---
 
-## 10. Project Conventions
+## 11. Project Conventions
 
 - All Firestore writes route through `src/lib/firestore.js` helper layer (not direct SDK calls in components)
 - All UI strings that would otherwise hardcode the project's brand name should live in one config constant — "BudgetHub" is a working name only
