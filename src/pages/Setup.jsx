@@ -54,10 +54,7 @@ export default function Setup() {
     fyStartYear: defaultStartYear,
     fyStartDate: '',
     fyEndDate: '',
-    fallStart: '',
-    fallEnd: '',
-    springStart: '',
-    springEnd: '',
+    fySplitDate: '',
     reconciliationCycle: 'monthly',
     homeBuildingCode: DEFAULT_BUILDINGS[0]?.code ?? '',
   });
@@ -78,6 +75,7 @@ export default function Setup() {
       fyStartYear: y,
       fyStartDate: f.fyStartDate || `${y}-08-01`,
       fyEndDate: f.fyEndDate || `${y + 1}-07-31`,
+      fySplitDate: f.fySplitDate || `${y + 1}-01-01`,
     }));
   }
 
@@ -87,8 +85,12 @@ export default function Setup() {
     if (!form.deptName.trim()) return setError('Department name is required.');
     const startDate = form.fyStartDate || `${form.fyStartYear}-08-01`;
     const endDate = form.fyEndDate || `${form.fyStartYear + 1}-07-31`;
+    const splitDate = form.fySplitDate || `${form.fyStartYear + 1}-01-01`;
     if (new Date(startDate) >= new Date(endDate)) {
       return setError('Fiscal year end must be after start.');
+    }
+    if (new Date(splitDate) < new Date(startDate) || new Date(splitDate) > new Date(endDate)) {
+      return setError('Split date must fall within the fiscal year.');
     }
 
     setLoading(true);
@@ -120,10 +122,7 @@ export default function Setup() {
         startYear: form.fyStartYear,
         startDate: toTimestamp(startDate),
         endDate: toTimestamp(endDate),
-        fallStart: form.fallStart ? toTimestamp(form.fallStart) : null,
-        fallEnd: form.fallEnd ? toTimestamp(form.fallEnd) : null,
-        springStart: form.springStart ? toTimestamp(form.springStart) : null,
-        springEnd: form.springEnd ? toTimestamp(form.springEnd) : null,
+        splitDate: toTimestamp(splitDate),
         status: 'active',
         createdAt: serverTimestamp(),
       });
@@ -283,43 +282,20 @@ export default function Setup() {
             </div>
 
             <div>
-              <h2 className="text-base font-semibold text-gray-800 mb-3">
-                Periods <span className="text-xs text-gray-400 font-normal">(optional)</span>
-              </h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-3">Period split</h2>
               <p className="text-xs text-gray-500 mb-3">
-                Building budgets that run on a Fall/Spring split can use these dates.
-                Leave blank for budgets that run year-round.
+                The single date that divides the year into its two periods —
+                spend on or before it counts as the first period, after it as the
+                second. You can rename the periods later under System → Periods.
               </p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Fall Start"
-                  id="fallStart"
-                  type="date"
-                  value={form.fallStart}
-                  onChange={(e) => set('fallStart', e.target.value)}
-                />
-                <Input
-                  label="Fall End"
-                  id="fallEnd"
-                  type="date"
-                  value={form.fallEnd}
-                  onChange={(e) => set('fallEnd', e.target.value)}
-                />
-                <Input
-                  label="Spring Start"
-                  id="springStart"
-                  type="date"
-                  value={form.springStart}
-                  onChange={(e) => set('springStart', e.target.value)}
-                />
-                <Input
-                  label="Spring End"
-                  id="springEnd"
-                  type="date"
-                  value={form.springEnd}
-                  onChange={(e) => set('springEnd', e.target.value)}
-                />
-              </div>
+              <Input
+                label="Split date"
+                id="fySplitDate"
+                type="date"
+                className="max-w-xs"
+                value={form.fySplitDate || `${form.fyStartYear + 1}-01-01`}
+                onChange={(e) => set('fySplitDate', e.target.value)}
+              />
             </div>
 
             <div>

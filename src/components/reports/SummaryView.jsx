@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useOrg } from '../../contexts/BuildingContext';
+import { useSystem } from '../../contexts/SystemContext';
 import {
   subscribeToCollection,
   subscribeToDocument,
@@ -25,6 +26,7 @@ function burnColor(remaining, allocation) {
 
 export default function SummaryView({ building, fiscalYear }) {
   const { activeDepartment } = useOrg();
+  const { systemDoc } = useSystem();
   const deptId = activeDepartment?.id;
 
   const [categories, setCategories] = useState([]);
@@ -33,8 +35,11 @@ export default function SummaryView({ building, fiscalYear }) {
   const [loadingCats, setLoadingCats] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
 
-  const splitPeriods = building?.settings?.splitPeriods;
-  const periodNames = building?.settings?.splitPeriodNames ?? ['Fall', 'Spring'];
+  // Period split is driven by the fiscal year's split date (a department-wide
+  // setting), and the period names come from the org-wide System → Periods
+  // config. Both are shared by every building so reports look consistent.
+  const splitPeriods = !!fiscalYear?.splitDate;
+  const periodNames = systemDoc?.periods?.fixed ?? ['Fall', 'Spring'];
 
   // Department-level shared category schema
   useEffect(() => {

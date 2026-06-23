@@ -3,6 +3,7 @@ import { useBuilding } from '../contexts/BuildingContext';
 import { useSystem } from '../contexts/SystemContext';
 import CategoryEditor from '../components/admin/CategoryEditor';
 import AllocationEditor from '../components/admin/AllocationEditor';
+import FiscalYearEditor from '../components/admin/FiscalYearEditor';
 import StrategyTypeEditor from '../components/admin/StrategyTypeEditor';
 import StaffRoster from '../components/admin/StaffRoster';
 import VendorList from '../components/admin/VendorList';
@@ -13,6 +14,7 @@ import SystemPanel from '../components/admin/system/SystemPanel';
 const ADMIN_NAV = [
   { to: '/admin/categories', label: 'Categories' },
   { to: '/admin/allocations', label: 'Allocations' },
+  { to: '/admin/fiscal-years', label: 'Fiscal Years' },
   { to: '/admin/strategies', label: 'Strategy Types' },
   { to: '/admin/staff', label: 'Staff Roster' },
   { to: '/admin/vendors', label: 'Vendors' },
@@ -63,6 +65,7 @@ export default function Admin() {
       <Routes>
         <Route path="categories" element={<CategoryEditor />} />
         <Route path="allocations" element={<AllocationEditor building={building} />} />
+        <Route path="fiscal-years" element={<FiscalYearEditor />} />
         <Route path="strategies" element={<StrategyTypeEditor />} />
         <Route path="staff" element={<StaffRoster building={building} />} />
         <Route path="vendors" element={<VendorList building={building} />} />

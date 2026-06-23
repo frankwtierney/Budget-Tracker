@@ -5,6 +5,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import Button from '../../shared/Button';
 import StructureEditor from './StructureEditor';
 import BuildingTypesEditor from './BuildingTypesEditor';
+import PeriodsEditor from './PeriodsEditor';
 
 const SYSTEM_NAV = [
   { to: '/admin/system/structure', label: 'Structure' },
@@ -58,7 +59,7 @@ export default function SystemPanel() {
       <Routes>
         <Route path="structure" element={<StructureEditor />} />
         <Route path="types" element={<BuildingTypesEditor />} />
-        <Route path="periods" element={<Placeholder title="Periods" />} />
+        <Route path="periods" element={<PeriodsEditor />} />
         <Route index element={<Navigate to="structure" replace />} />
       </Routes>
     </div>
@@ -108,14 +109,6 @@ function NotAuthorized() {
     <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-4 max-w-md">
       System settings can only be managed by a Super Admin. Contact your
       organization's Super Admin for access.
-    </div>
-  );
-}
-
-function Placeholder({ title }) {
-  return (
-    <div className="text-sm text-gray-400 italic">
-      {title} editor — coming in the next phase.
     </div>
   );
 }

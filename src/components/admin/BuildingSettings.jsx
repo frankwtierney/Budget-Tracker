@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useBuilding } from '../../contexts/BuildingContext';
+import { useSystem } from '../../contexts/SystemContext';
 import { updateDocument } from '../../lib/firestore';
+import { formatDate } from '../../lib/format';
 import Button from '../shared/Button';
 import Input from '../shared/Input';
 
@@ -19,6 +21,8 @@ const EVENT_INTEGRATION = [
 
 export default function BuildingSettings({ building }) {
   const { fiscalYear } = useBuilding();
+  const { systemDoc } = useSystem();
+  const periodNames = systemDoc?.periods?.fixed ?? ['Fall', 'Spring'];
   const [form, setForm] = useState(formFromBuilding(building));
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
@@ -44,10 +48,6 @@ export default function BuildingSettings({ building }) {
         type: form.type.trim() || null,
         settings: {
           trackPersonalBudgets: !!form.trackPersonalBudgets,
-          splitPeriods: !!form.splitPeriods,
-          splitPeriodNames: form.splitPeriods
-            ? [form.periodName1.trim() || 'Fall', form.periodName2.trim() || 'Spring']
-            : null,
           reconciliationCycle: form.reconciliationCycle || null,
           subGroupingLabel: form.subGroupingLabel.trim() || null,
           eventIntegration: form.eventIntegration || 'none',
@@ -113,30 +113,18 @@ export default function BuildingSettings({ building }) {
         </Section>
 
         <Section title="Periods">
-          <Toggle
-            label="Split year into Fall / Spring (or other)"
-            help="When on, the Summary view shows two period columns separately."
-            checked={form.splitPeriods}
-            onChange={(v) => set('splitPeriods', v)}
-          />
-          {form.splitPeriods && (
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Period 1 name"
-                id="periodName1"
-                value={form.periodName1}
-                placeholder="Fall"
-                onChange={(e) => set('periodName1', e.target.value)}
-              />
-              <Input
-                label="Period 2 name"
-                id="periodName2"
-                value={form.periodName2}
-                placeholder="Spring"
-                onChange={(e) => set('periodName2', e.target.value)}
-              />
-            </div>
+          {fiscalYear?.splitDate ? (
+            <ReadOnlyRow
+              label="Period split"
+              value={`${periodNames[0]} / ${periodNames[1]} at ${formatDate(fiscalYear.splitDate)}`}
+            />
+          ) : (
+            <ReadOnlyRow label="Period split" value="Year-round (no split)" />
           )}
+          <p className="text-xs text-gray-500">
+            Periods are set for the whole department, so every building's reports
+            match. Names: System → Periods. Split date: Admin → Fiscal Years.
+          </p>
         </Section>
 
         <Section title="Reconciliation">
@@ -179,9 +167,6 @@ function formFromBuilding(b) {
     name: b?.name ?? '',
     type: b?.type ?? '',
     trackPersonalBudgets: !!s.trackPersonalBudgets,
-    splitPeriods: !!s.splitPeriods,
-    periodName1: s.splitPeriodNames?.[0] ?? 'Fall',
-    periodName2: s.splitPeriodNames?.[1] ?? 'Spring',
     reconciliationCycle: s.reconciliationCycle ?? '',
     subGroupingLabel: s.subGroupingLabel ?? '',
     eventIntegration: s.eventIntegration ?? 'none',
