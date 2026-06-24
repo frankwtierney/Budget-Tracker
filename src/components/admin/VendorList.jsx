@@ -15,6 +15,7 @@ import {
   where,
 } from '../../lib/firestore';
 import { formatCurrency, formatDate } from '../../lib/format';
+import { useTerm } from '../../lib/terminology';
 import Button from '../shared/Button';
 import Input from '../shared/Input';
 import Modal from '../shared/Modal';
@@ -48,6 +49,7 @@ const UB_SEED_VENDORS = [
 
 export default function VendorList({ building }) {
   const { activeDepartment } = useOrg();
+  const term = useTerm();
   const deptId = activeDepartment?.id;
 
   const [deptVendors, setDeptVendors] = useState([]);
@@ -197,8 +199,8 @@ export default function VendorList({ building }) {
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Vendors</h2>
           <p className="text-sm text-gray-500">
-            Shared vendors are available across all buildings in the department.
-            Building-only vendors are private to <span className="font-medium">{building?.name}</span>.
+            Shared vendors are available across all {term.building.many.toLowerCase()} in the {term.department.one.toLowerCase()}.
+            {term.building.one}-only vendors are private to <span className="font-medium">{building?.name}</span>.
           </p>
         </div>
         <input
@@ -213,9 +215,9 @@ export default function VendorList({ building }) {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-gray-800">Shared (Department)</h3>
+            <h3 className="text-base font-semibold text-gray-800">Shared ({term.department.one})</h3>
             <p className="text-xs text-gray-500">
-              Visible to every building in the department.
+              Visible to every {term.building.one.toLowerCase()} in the {term.department.one.toLowerCase()}.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -223,7 +225,7 @@ export default function VendorList({ building }) {
               variant="secondary"
               loading={recomputeBusy}
               onClick={handleRecompute}
-              title="Rebuild transactionCount / totalSpend / lastUsedAt for every vendor from non-voided transactions across all buildings in the department."
+              title={`Rebuild transactionCount / totalSpend / lastUsedAt for every vendor from non-voided transactions across all ${term.building.many.toLowerCase()} in the ${term.department.one.toLowerCase()}.`}
             >
               Recompute totals
             </Button>
@@ -255,9 +257,9 @@ export default function VendorList({ building }) {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-gray-800">Building-only</h3>
+            <h3 className="text-base font-semibold text-gray-800">{term.building.one}-only</h3>
             <p className="text-xs text-gray-500">
-              Private to this building. Vendors added on the fly during expense entry land here.
+              Private to this {term.building.one.toLowerCase()}. Vendors added on the fly during expense entry land here.
             </p>
           </div>
           <Button onClick={() => setEditModal({ scope: 'building', vendor: null })}>
@@ -298,13 +300,14 @@ export default function VendorList({ building }) {
 }
 
 function VendorTable({ vendors, loading, scope, showStats, onEdit, onRemove }) {
+  const term = useTerm();
   if (loading) return <div className="text-sm text-gray-400">Loading...</div>;
   if (vendors.length === 0) {
     return (
       <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400">
         {scope === 'department'
           ? 'No shared vendors yet. Use Seed or + Add Vendor to start the list.'
-          : 'No building-only vendors yet. They appear here when added during expense entry.'}
+          : `No ${term.building.one.toLowerCase()}-only vendors yet. They appear here when added during expense entry.`}
       </div>
     );
   }
@@ -554,6 +557,7 @@ function ArchiveIcon({ className }) {
 }
 
 function RemoveVendorModal({ isOpen, onClose, scope, vendor, deptId, buildingId }) {
+  const term = useTerm();
   const [loading, setLoading] = useState(false);
   if (!vendor) return null;
 
@@ -589,8 +593,8 @@ function RemoveVendorModal({ isOpen, onClose, scope, vendor, deptId, buildingId 
         {isArchive ? (
           scope === 'department' ? (
             <>
-              <span className="font-semibold">{vendor.name}</span> is shared across the department.
-              It will be archived (status set to <span className="font-mono">archived</span>) and hidden from new expense entries, but existing transactions in any building keep their link.
+              <span className="font-semibold">{vendor.name}</span> is shared across the {term.department.one.toLowerCase()}.
+              It will be archived (status set to <span className="font-mono">archived</span>) and hidden from new expense entries, but existing transactions in any {term.building.one.toLowerCase()} keep their link.
             </>
           ) : (
             <>

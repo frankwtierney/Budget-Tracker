@@ -18,6 +18,7 @@ import {
   DEFAULT_COMPLEXES,
 } from '../lib/structure';
 import { APP_NAME } from '../config';
+import { useTerm } from '../lib/terminology';
 import Button from '../components/shared/Button';
 import Input from '../components/shared/Input';
 
@@ -40,6 +41,7 @@ function fiscalYearOptions() {
 export default function Setup() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const term = useTerm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -82,7 +84,7 @@ export default function Setup() {
   async function handleSubmit(seedDefaults) {
     setError('');
 
-    if (!form.deptName.trim()) return setError('Department name is required.');
+    if (!form.deptName.trim()) return setError(`${term.department.one} name is required.`);
     const startDate = form.fyStartDate || `${form.fyStartYear}-08-01`;
     const endDate = form.fyEndDate || `${form.fyStartYear + 1}-07-31`;
     const splitDate = form.fySplitDate || `${form.fyStartYear + 1}-01-01`;
@@ -220,16 +222,16 @@ export default function Setup() {
       <div className="w-full max-w-xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">{APP_NAME}</h1>
-          <p className="mt-2 text-gray-500">Let's set up your department</p>
+          <p className="mt-2 text-gray-500">Let's set up your {term.department.one.toLowerCase()}</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
             <div>
-              <h2 className="text-base font-semibold text-gray-800 mb-3">Department</h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-3">{term.department.one}</h2>
               <div className="space-y-3">
                 <Input
-                  label="Department Name"
+                  label={`${term.department.one} Name`}
                   id="deptName"
                   required
                   value={form.deptName}
@@ -363,7 +365,7 @@ export default function Setup() {
                 variant="secondary"
                 className="w-full"
               >
-                Create Department Only (add areas & buildings later)
+                Create {term.department.one} Only (add {term.area.many.toLowerCase()} &amp; {term.building.many.toLowerCase()} later)
               </Button>
             </div>
           </form>

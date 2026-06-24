@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBuilding } from '../../contexts/BuildingContext';
+import { useTerm } from '../../lib/terminology';
 import { APP_NAME } from '../../config';
 import UserMenu from './UserMenu';
 
@@ -25,6 +26,7 @@ export default function AppShell({ onNewExpense }) {
     complexes,
     activeDepartment,
   } = useBuilding();
+  const term = useTerm();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const scopeKey = scope ? `${scope.level}:${scope.id}` : '';
@@ -74,7 +76,7 @@ export default function AppShell({ onNewExpense }) {
               onChange={handleScopeChange}
               className="block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <optgroup label="Department">
+              <optgroup label={term.department.one}>
                 {departments.map((d) => (
                   <option key={d.id} value={`department:${d.id}`}>
                     {d.shortName ?? d.name}
@@ -82,7 +84,7 @@ export default function AppShell({ onNewExpense }) {
                 ))}
               </optgroup>
               {areas.length > 0 && (
-                <optgroup label="Areas">
+                <optgroup label={term.area.many}>
                   {areas.map((a) => (
                     <option key={a.id} value={`area:${a.id}`}>
                       {a.code} — {a.name}
@@ -91,7 +93,7 @@ export default function AppShell({ onNewExpense }) {
                 </optgroup>
               )}
               {complexes.length > 0 && (
-                <optgroup label="Complexes">
+                <optgroup label={term.complex.many}>
                   {complexes.map((c) => (
                     <option key={c.id} value={`complex:${c.id}`}>
                       {c.name}
@@ -101,7 +103,7 @@ export default function AppShell({ onNewExpense }) {
               )}
               {areas.map((a) =>
                 (buildingsByArea[a.id] ?? []).length > 0 ? (
-                  <optgroup key={a.id} label={`Buildings — ${a.code}`}>
+                  <optgroup key={a.id} label={`${term.building.many} — ${a.code}`}>
                     {buildingsByArea[a.id].map((b) => (
                       <option key={b.id} value={`building:${b.id}`}>
                         {b.code} — {b.name}

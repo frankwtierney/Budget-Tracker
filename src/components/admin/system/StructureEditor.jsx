@@ -9,6 +9,7 @@ import {
   getBatch,
   batchUpdate,
 } from '../../../lib/firestore';
+import { useTerm } from '../../../lib/terminology';
 import Button from '../../shared/Button';
 import Input from '../../shared/Input';
 import Modal from '../../shared/Modal';
@@ -30,6 +31,7 @@ const MATRIX_MAX_TYPES = 6;
 
 export default function StructureEditor() {
   const { systemDoc } = useSystem();
+  const term = useTerm();
   const buildingTypes = useMemo(
     () => (systemDoc?.buildingTypes ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
     [systemDoc]
@@ -96,9 +98,9 @@ export default function StructureEditor() {
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Structure</h2>
           <p className="text-sm text-gray-500">
-            The org skeleton — Departments, their Areas, and which Buildings belong
-            to each. Edits here update the same records the sidebar "Viewing"
-            picker uses.
+            The org skeleton — {term.department.many}, their {term.area.many}, and
+            which {term.building.many} belong to each. Edits here update the same
+            records the sidebar "Viewing" picker uses.
           </p>
         </div>
         <Button
@@ -119,7 +121,7 @@ export default function StructureEditor() {
         <div className="text-sm text-gray-400">Loading structure…</div>
       ) : departments.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg">
-          <p className="text-gray-400">No departments found.</p>
+          <p className="text-gray-400">No {term.department.many.toLowerCase()} found.</p>
           <p className="text-sm text-gray-400 mt-1">
             Run Setup to seed the initial structure.
           </p>
@@ -157,10 +159,10 @@ export default function StructureEditor() {
             <div className="border border-amber-200 bg-amber-50/50 rounded-lg overflow-hidden">
               <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200">
                 <span className="font-semibold text-amber-900 text-sm">
-                  Unassigned buildings
+                  Unassigned {term.building.many.toLowerCase()}
                 </span>
                 <span className="ml-2 text-xs text-amber-700">
-                  not linked to an existing area — edit to reassign
+                  not linked to an existing {term.area.one.toLowerCase()} — edit to reassign
                 </span>
               </div>
               <ul className="divide-y divide-amber-100">
@@ -208,6 +210,7 @@ function DepartmentBlock({
   onAddBuilding,
   onEditBuilding,
 }) {
+  const term = useTerm();
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
@@ -216,14 +219,14 @@ function DepartmentBlock({
             {department.shortName || department.name}
           </span>
           <span className="text-xs text-gray-400">
-            {areas.length} {areas.length === 1 ? 'area' : 'areas'}
+            {areas.length} {areas.length === 1 ? term.area.one.toLowerCase() : term.area.many.toLowerCase()}
           </span>
         </div>
-        <Button variant="secondary" onClick={onAddArea}>+ Add Area</Button>
+        <Button variant="secondary" onClick={onAddArea}>+ Add {term.area.one}</Button>
       </div>
 
       {areas.length === 0 ? (
-        <p className="px-4 py-4 text-sm text-gray-400 italic">No areas yet.</p>
+        <p className="px-4 py-4 text-sm text-gray-400 italic">No {term.area.many.toLowerCase()} yet.</p>
       ) : (
         <div className="divide-y divide-gray-100">
           {areas.map((area) => {
@@ -235,22 +238,22 @@ function DepartmentBlock({
                     <span className="font-mono text-xs text-gray-500 shrink-0">{area.code}</span>
                     <span className="text-sm font-medium text-gray-800 truncate">{area.name}</span>
                     <span className="text-xs text-gray-400 shrink-0">
-                      {buildings.length} {buildings.length === 1 ? 'building' : 'buildings'}
+                      {buildings.length} {buildings.length === 1 ? term.building.one.toLowerCase() : term.building.many.toLowerCase()}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => onAddBuilding(area)}
-                      title="Add building"
-                      aria-label="Add building"
+                      title={`Add ${term.building.one.toLowerCase()}`}
+                      aria-label={`Add ${term.building.one.toLowerCase()}`}
                       className="text-gray-400 hover:text-blue-600 p-1 rounded"
                     >
                       <PlusIcon className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => onEditArea(area)}
-                      title="Edit area"
-                      aria-label="Edit area"
+                      title={`Edit ${term.area.one.toLowerCase()}`}
+                      aria-label={`Edit ${term.area.one.toLowerCase()}`}
                       className="text-gray-400 hover:text-gray-700 p-1 rounded"
                     >
                       <PencilIcon className="w-4 h-4" />
@@ -281,6 +284,7 @@ function DepartmentBlock({
 }
 
 function BuildingRow({ building, typesById, indented, onEdit }) {
+  const term = useTerm();
   const typeName = building.typeId ? typesById?.[building.typeId]?.name : null;
   // Fixed columns — code | name | type | edit. The name track is a fixed width
   // so the type pills always start at the same x and read as a clean
@@ -303,8 +307,8 @@ function BuildingRow({ building, typesById, indented, onEdit }) {
       )}
       <button
         onClick={onEdit}
-        title="Edit building"
-        aria-label="Edit building"
+        title={`Edit ${term.building.one.toLowerCase()}`}
+        aria-label={`Edit ${term.building.one.toLowerCase()}`}
         className="justify-self-end text-gray-400 hover:text-gray-700 p-1 rounded"
       >
         <PencilIcon className="w-4 h-4" />
@@ -315,6 +319,7 @@ function BuildingRow({ building, typesById, indented, onEdit }) {
 
 function AreaModal({ isOpen, onClose, existing, departmentId }) {
   const { user } = useAuth();
+  const term = useTerm();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -360,7 +365,7 @@ function AreaModal({ isOpen, onClose, existing, departmentId }) {
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={existing ? 'Edit Area' : 'Add Area'} size="sm">
+    <Modal isOpen={isOpen} onClose={onClose} title={existing ? `Edit ${term.area.one}` : `Add ${term.area.one}`} size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Code"
@@ -381,8 +386,8 @@ function AreaModal({ isOpen, onClose, existing, departmentId }) {
         />
         {!existing && (
           <p className="text-xs text-gray-500">
-            New areas start with no one assigned. Grant admins access in the
-            access step (coming next).
+            New {term.area.many.toLowerCase()} start with no one assigned. Grant
+            admins access in the access step (coming next).
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -397,6 +402,7 @@ function AreaModal({ isOpen, onClose, existing, departmentId }) {
 
 function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments, buildingTypes }) {
   const { user } = useAuth();
+  const term = useTerm();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [typeId, setTypeId] = useState('');
@@ -479,7 +485,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={existing ? 'Edit Building' : 'Add Building'}
+      title={existing ? `Edit ${term.building.one}` : `Add ${term.building.one}`}
       size="sm"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -507,7 +513,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
 
         <div>
           <label htmlFor="buildingArea" className="block text-sm font-medium text-gray-700 mb-1">
-            Area
+            {term.area.one}
           </label>
           <select
             id="buildingArea"
@@ -515,7 +521,7 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
             onChange={(e) => setAreaId(e.target.value)}
             className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">— Select area —</option>
+            <option value="">— Select {term.area.one.toLowerCase()} —</option>
             {Object.entries(areasByDept).map(([deptId, deptAreas]) => (
               <optgroup key={deptId} label={deptName(deptId)}>
                 {deptAreas.map((a) => (
@@ -570,11 +576,13 @@ function BuildingModal({ isOpen, onClose, existing, defaults, areas, departments
 // Falls back to a per-row dropdown when there are more types than fit cleanly.
 
 function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuildings, buildingTypes }) {
+  const term = useTerm();
   return (
     <div className="space-y-5">
       <div className="text-sm text-blue-900 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
-        Click a circle to set a building's type — it saves instantly. Click a type
-        heading to set every building in that group at once.
+        Click a circle to set a {term.building.one.toLowerCase()}'s type — it saves
+        instantly. Click a type heading to set every {term.building.one.toLowerCase()} in
+        that group at once.
       </div>
 
       {departments
@@ -590,7 +598,7 @@ function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuil
                 </span>
               </div>
               {deptAreas.length === 0 ? (
-                <p className="px-4 py-4 text-sm text-gray-400 italic">No areas yet.</p>
+                <p className="px-4 py-4 text-sm text-gray-400 italic">No {term.area.many.toLowerCase()} yet.</p>
               ) : (
                 <div className="divide-y divide-gray-100">
                   {deptAreas.map((area) => {
@@ -601,7 +609,7 @@ function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuil
                           <span className="font-mono">{area.code}</span> — {area.name}
                         </div>
                         {bs.length === 0 ? (
-                          <p className="px-1 text-sm text-gray-400 italic">No buildings.</p>
+                          <p className="px-1 text-sm text-gray-400 italic">No {term.building.many.toLowerCase()}.</p>
                         ) : (
                           <AssignAreaTable
                             groupName={area.code}
@@ -621,7 +629,7 @@ function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuil
       {orphanBuildings.length > 0 && (
         <div className="bg-white border border-amber-200 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
-            <span className="font-semibold text-amber-900 text-sm">Unassigned buildings</span>
+            <span className="font-semibold text-amber-900 text-sm">Unassigned {term.building.many.toLowerCase()}</span>
           </div>
           <div className="px-3 py-3">
             <AssignAreaTable
@@ -637,6 +645,7 @@ function AssignTypesView({ departments, areasByDept, buildingsByArea, orphanBuil
 }
 
 function AssignAreaTable({ groupName, buildings, buildingTypes }) {
+  const term = useTerm();
   const [savingId, setSavingId] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const useDropdown = buildingTypes.length > MATRIX_MAX_TYPES;
@@ -674,7 +683,7 @@ function AssignAreaTable({ groupName, buildings, buildingTypes }) {
         <thead>
           <tr className="border-b border-gray-200">
             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
-              Building
+              {term.building.one}
               {bulkBusy && <span className="ml-2 normal-case text-gray-400">saving…</span>}
             </th>
             {useDropdown ? (

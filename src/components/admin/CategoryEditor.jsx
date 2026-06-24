@@ -7,6 +7,7 @@ import {
   deleteDocument,
   orderBy,
 } from '../../lib/firestore';
+import { useTerm } from '../../lib/terminology';
 import Button from '../shared/Button';
 import Input from '../shared/Input';
 import Modal from '../shared/Modal';
@@ -18,6 +19,7 @@ import Modal from '../shared/Modal';
 
 export default function CategoryEditor() {
   const { activeDepartment } = useOrg();
+  const term = useTerm();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categoryModal, setCategoryModal] = useState(null); // null | 'new' | category
@@ -38,7 +40,7 @@ export default function CategoryEditor() {
   }, [deptId]);
 
   if (!activeDepartment) {
-    return <p className="text-gray-400">No active department.</p>;
+    return <p className="text-gray-400">No active {term.department.one.toLowerCase()}.</p>;
   }
 
   return (
@@ -47,8 +49,8 @@ export default function CategoryEditor() {
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Categories</h2>
           <p className="text-sm text-gray-500">
-            Shared across all buildings in {activeDepartment.shortName || activeDepartment.name}.
-            Per-building dollar amounts are set in Allocations.
+            Shared across all {term.building.many.toLowerCase()} in {activeDepartment.shortName || activeDepartment.name}.
+            Per-{term.building.one.toLowerCase()} dollar amounts are set in Allocations.
           </p>
         </div>
         <Button onClick={() => setCategoryModal('new')}>+ Add Category</Button>

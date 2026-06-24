@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useBuilding } from '../../contexts/BuildingContext';
 import { useSystem } from '../../contexts/SystemContext';
+import { useTerm } from '../../lib/terminology';
 import { updateDocument } from '../../lib/firestore';
 import { formatDate } from '../../lib/format';
 import Button from '../shared/Button';
@@ -22,6 +23,7 @@ const EVENT_INTEGRATION = [
 export default function BuildingSettings({ building }) {
   const { fiscalYear } = useBuilding();
   const { systemDoc } = useSystem();
+  const term = useTerm();
   const periodNames = systemDoc?.periods?.fixed ?? ['Fall', 'Spring'];
   const [form, setForm] = useState(formFromBuilding(building));
   const [saving, setSaving] = useState(false);
@@ -66,7 +68,7 @@ export default function BuildingSettings({ building }) {
     <div className="space-y-4 max-w-xl">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900">Building Settings</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{term.building.one} Settings</h2>
           <p className="text-sm text-gray-500">{building.name}</p>
         </div>
         <div className="flex items-center gap-3">
@@ -122,8 +124,9 @@ export default function BuildingSettings({ building }) {
             <ReadOnlyRow label="Period split" value="Year-round (no split)" />
           )}
           <p className="text-xs text-gray-500">
-            Periods are set for the whole department, so every building's reports
-            match. Names: System → Periods. Split date: Admin → Fiscal Years.
+            Periods are set for the whole {term.department.one.toLowerCase()}, so
+            every {term.building.one.toLowerCase()}'s reports match. Names: System →
+            Periods. Split date: Admin → Fiscal Years.
           </p>
         </Section>
 

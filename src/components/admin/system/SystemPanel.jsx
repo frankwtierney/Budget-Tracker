@@ -6,16 +6,22 @@ import Button from '../../shared/Button';
 import StructureEditor from './StructureEditor';
 import BuildingTypesEditor from './BuildingTypesEditor';
 import PeriodsEditor from './PeriodsEditor';
-
-const SYSTEM_NAV = [
-  { to: '/admin/system/structure', label: 'Structure' },
-  { to: '/admin/system/types', label: 'Building Types' },
-  { to: '/admin/system/periods', label: 'Periods' },
-];
+import PositionsEditor from './PositionsEditor';
+import TerminologyEditor from './TerminologyEditor';
+import { useTerm } from '../../../lib/terminology';
 
 export default function SystemPanel() {
   const { loading, isSuperAdmin, isUnclaimed, claimSuperAdmin } = useSystem();
   const { user } = useAuth();
+  const term = useTerm();
+
+  const SYSTEM_NAV = [
+    { to: '/admin/system/structure', label: 'Structure' },
+    { to: '/admin/system/terminology', label: 'Terminology' },
+    { to: '/admin/system/types', label: `${term.building.one} Types` },
+    { to: '/admin/system/periods', label: 'Periods' },
+    { to: '/admin/system/positions', label: 'Positions' },
+  ];
 
   if (loading) {
     return <div className="text-sm text-gray-400">Loading system settings…</div>;
@@ -58,8 +64,10 @@ export default function SystemPanel() {
 
       <Routes>
         <Route path="structure" element={<StructureEditor />} />
+        <Route path="terminology" element={<TerminologyEditor />} />
         <Route path="types" element={<BuildingTypesEditor />} />
         <Route path="periods" element={<PeriodsEditor />} />
+        <Route path="positions" element={<PositionsEditor />} />
         <Route index element={<Navigate to="structure" replace />} />
       </Routes>
     </div>
@@ -67,6 +75,7 @@ export default function SystemPanel() {
 }
 
 function ClaimOwnership({ onClaim, email }) {
+  const term = useTerm();
   const [claiming, setClaiming] = useState(false);
   const [error, setError] = useState('');
 
@@ -88,13 +97,14 @@ function ClaimOwnership({ onClaim, email }) {
       <h3 className="text-base font-semibold text-amber-900">Set up System Settings</h3>
       <p className="text-sm text-amber-800">
         No Super Admin exists yet. Claim ownership as{' '}
-        <span className="font-medium">{email}</span> to manage building types,
-        period names, and the building list.
+        <span className="font-medium">{email}</span> to manage{' '}
+        {term.building.one.toLowerCase()} types, period names, and the{' '}
+        {term.building.one.toLowerCase()} list.
       </p>
       <p className="text-xs text-amber-700 bg-amber-100/60 border border-amber-200 rounded px-2 py-1.5">
         <span className="font-semibold">Heads up:</span> Super Admin is a global
-        role tied to your account — not to any specific building or department.
-        It applies across the entire organization.
+        role tied to your account — not to any specific {term.building.one.toLowerCase()}{' '}
+        or {term.department.one.toLowerCase()}. It applies across the entire organization.
       </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <Button onClick={handleClaim} loading={claiming} disabled={claiming}>

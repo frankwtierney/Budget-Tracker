@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSystem } from '../../../contexts/SystemContext';
+import { useTerm } from '../../../lib/terminology';
 import { updateDocument } from '../../../lib/firestore';
 import Button from '../../shared/Button';
 import Input from '../../shared/Input';
@@ -15,6 +16,7 @@ const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
 
 export default function BuildingTypesEditor() {
   const { systemDoc } = useSystem();
+  const term = useTerm();
   const types = (systemDoc?.buildingTypes ?? []).slice().sort(byOrder);
 
   const [editModal, setEditModal] = useState(null); // null | 'new' | type
@@ -28,10 +30,11 @@ export default function BuildingTypesEditor() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900">Building Types</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{term.building.one} Types</h2>
           <p className="text-sm text-gray-500">
-            The categories a building can be (Residence Hall, Apartment, Success
-            Center…). Assigned to buildings in the Structure tab.
+            The categories a {term.building.one.toLowerCase()} can be (Residence
+            Hall, Apartment, Success Center…). Assigned to {term.building.many.toLowerCase()}{' '}
+            in the Structure tab.
           </p>
         </div>
         <Button onClick={() => setEditModal('new')}>+ Add Type</Button>
@@ -39,9 +42,9 @@ export default function BuildingTypesEditor() {
 
       {types.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg">
-          <p className="text-gray-400">No building types yet.</p>
+          <p className="text-gray-400">No {term.building.one.toLowerCase()} types yet.</p>
           <p className="text-sm text-gray-400 mt-1">
-            Add the types your org uses to classify buildings.
+            Add the types your org uses to classify {term.building.many.toLowerCase()}.
           </p>
         </div>
       ) : (
@@ -181,6 +184,7 @@ function EditModal({ isOpen, onClose, existing, types, persist }) {
 }
 
 function DeleteConfirmModal({ isOpen, onClose, item, types, persist }) {
+  const term = useTerm();
   const [loading, setLoading] = useState(false);
 
   async function handleDelete() {
@@ -198,9 +202,9 @@ function DeleteConfirmModal({ isOpen, onClose, item, types, persist }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Confirm Delete" size="sm">
       <p className="text-sm text-gray-600 mb-4">
-        Delete <span className="font-semibold">{item?.name}</span>? Buildings
-        currently set to this type will show no type until reassigned. This
-        cannot be undone.
+        Delete <span className="font-semibold">{item?.name}</span>?{' '}
+        {term.building.many} currently set to this type will show no type until
+        reassigned. This cannot be undone.
       </p>
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>

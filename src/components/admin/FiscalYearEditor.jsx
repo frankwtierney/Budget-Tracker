@@ -10,6 +10,7 @@ import {
 } from '../../lib/firestore';
 import { toTimestamp, formatDate } from '../../lib/format';
 import { isAdminOf } from '../../lib/structure';
+import { useTerm } from '../../lib/terminology';
 import Button from '../shared/Button';
 import Input from '../shared/Input';
 import Modal from '../shared/Modal';
@@ -39,6 +40,7 @@ export default function FiscalYearEditor() {
   const { activeDepartment } = useOrg();
   const { systemDoc, isSuperAdmin } = useSystem();
   const { user } = useAuth();
+  const term = useTerm();
   const deptId = activeDepartment?.id;
   const activeFyId = activeDepartment?.activeFiscalYearId;
 
@@ -83,7 +85,7 @@ export default function FiscalYearEditor() {
   if (!deptId) {
     return (
       <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-4 max-w-md">
-        Select a department to manage its fiscal years.
+        Select a {term.department.one.toLowerCase()} to manage its fiscal years.
       </div>
     );
   }
@@ -97,7 +99,7 @@ export default function FiscalYearEditor() {
             The budget years for {activeDepartment.shortName || activeDepartment.name}.
             Each year's split date divides it into {periodNames[0]} and{' '}
             {periodNames[1]}. The active year is what the rest of the app reads —
-            it applies to every building in this department.
+            it applies to every {term.building.one.toLowerCase()} in this {term.department.one.toLowerCase()}.
           </p>
         </div>
         {canEdit && <Button onClick={() => setEditModal('new')}>+ Add Fiscal Year</Button>}
@@ -105,8 +107,8 @@ export default function FiscalYearEditor() {
 
       {!canEdit && (
         <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
-          View only — fiscal years are managed by a department admin and shared by
-          all buildings in {activeDepartment.shortName || activeDepartment.name}.
+          View only — fiscal years are managed by a {term.department.one.toLowerCase()} admin
+          and shared by all {term.building.many.toLowerCase()} in {activeDepartment.shortName || activeDepartment.name}.
         </div>
       )}
 

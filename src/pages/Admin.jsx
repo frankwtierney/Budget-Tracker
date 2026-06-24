@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useBuilding } from '../contexts/BuildingContext';
 import { useSystem } from '../contexts/SystemContext';
+import { useTerm } from '../lib/terminology';
 import CategoryEditor from '../components/admin/CategoryEditor';
 import AllocationEditor from '../components/admin/AllocationEditor';
 import FiscalYearEditor from '../components/admin/FiscalYearEditor';
@@ -11,24 +12,25 @@ import PaymentSourcesList from '../components/admin/PaymentSourcesList';
 import BuildingSettings from '../components/admin/BuildingSettings';
 import SystemPanel from '../components/admin/system/SystemPanel';
 
-const ADMIN_NAV = [
-  { to: '/admin/categories', label: 'Categories' },
-  { to: '/admin/allocations', label: 'Allocations' },
-  { to: '/admin/fiscal-years', label: 'Fiscal Years' },
-  { to: '/admin/strategies', label: 'Strategy Types' },
-  { to: '/admin/staff', label: 'Staff Roster' },
-  { to: '/admin/vendors', label: 'Vendors' },
-  { to: '/admin/payment-sources', label: 'Payment Sources' },
-  { to: '/admin/settings', label: 'Building Settings' },
-];
-
 export default function Admin() {
   const { building } = useBuilding();
   const { isSuperAdmin, isUnclaimed } = useSystem();
+  const term = useTerm();
 
   if (!building) {
     return <div className="flex items-center justify-center h-64 text-gray-400">Loading...</div>;
   }
+
+  const ADMIN_NAV = [
+    { to: '/admin/categories', label: 'Categories' },
+    { to: '/admin/allocations', label: 'Allocations' },
+    { to: '/admin/fiscal-years', label: 'Fiscal Years' },
+    { to: '/admin/strategies', label: 'Strategy Types' },
+    { to: '/admin/staff', label: 'Staff Roster' },
+    { to: '/admin/vendors', label: 'Vendors' },
+    { to: '/admin/payment-sources', label: 'Payment Sources' },
+    { to: '/admin/settings', label: `${term.building.one} Settings` },
+  ];
 
   // Show System tab to existing Super Admins, or to anyone when no Super Admin
   // exists yet (so the first user can claim ownership).
