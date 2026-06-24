@@ -222,7 +222,7 @@ function DepartmentBlock({
             {areas.length} {areas.length === 1 ? term.area.one.toLowerCase() : term.area.many.toLowerCase()}
           </span>
         </div>
-        <Button variant="secondary" onClick={onAddArea}>+ Add {term.area.one}</Button>
+        <Button onClick={onAddArea}>+ Add {term.area.one}</Button>
       </div>
 
       {areas.length === 0 ? (
