@@ -11,12 +11,30 @@ import Input from '../../shared/Input';
 
 const SYSTEM_DOC_PATH = 'system/config';
 
-const TIER_HELP = {
-  department: 'The top tier. Fiscal years and org-wide settings live here.',
-  area: 'The middle tier, grouping the leaf tier below it.',
-  building: 'The leaf tier — where budgets and allocations are tracked.',
-  complex: 'An optional operational grouping of leaf-tier nodes.',
+// Neutral, org-agnostic structural identity for each tier — shown in the left
+// column so a row never depends on the (renameable) labels themselves.
+const TIER_META = {
+  department: {
+    title: 'Tier 1 — Top',
+    desc: 'The organization-level container. Fiscal years and org-wide settings live here.',
+  },
+  area: {
+    title: 'Tier 2 — Middle',
+    desc: 'Groups the leaf tier beneath it.',
+  },
+  building: {
+    title: 'Tier 3 — Leaf',
+    desc: 'The bottom level — where budgets and transactions are tracked. “Leaf” = a node with nothing nested under it.',
+  },
+  complex: {
+    title: 'Optional grouping',
+    desc: 'An optional cluster of leaf-tier nodes that run as one unit (e.g. several buildings sharing staff). Each member keeps its own budget.',
+  },
 };
+
+// The three required nesting tiers, top → leaf. Complex is rendered separately
+// below them because it's an overlay, not a level in the chain.
+const NESTING_KEYS = ['department', 'area', 'building'];
 
 export default function TerminologyEditor() {
   const { systemDoc } = useSystem();
@@ -73,6 +91,35 @@ export default function TerminologyEditor() {
     setDraft(structuredClone(DEFAULT_TIER_LABELS));
   }
 
+  function renderRow(key) {
+    return (
+      <tr key={key} className="align-top">
+        <td className="px-4 py-3">
+          <div className="text-gray-700 font-medium">{TIER_META[key].title}</div>
+          <div className="text-xs text-gray-400">{TIER_META[key].desc}</div>
+        </td>
+        <td className="px-4 py-3">
+          <Input
+            id={`${key}-one`}
+            aria-label={`${TIER_META[key].title} singular label`}
+            value={draft[key].one}
+            onChange={(e) => setField(key, 'one', e.target.value)}
+            placeholder={DEFAULT_TIER_LABELS[key].one}
+          />
+        </td>
+        <td className="px-4 py-3">
+          <Input
+            id={`${key}-many`}
+            aria-label={`${TIER_META[key].title} plural label`}
+            value={draft[key].many}
+            onChange={(e) => setField(key, 'many', e.target.value)}
+            placeholder={DEFAULT_TIER_LABELS[key].many}
+          />
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -88,38 +135,19 @@ export default function TerminologyEditor() {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Tier</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Structure tier</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Singular</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Plural</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {TIER_KEYS.map((key) => (
-              <tr key={key} className="align-top">
-                <td className="px-4 py-3">
-                  <div className="text-gray-700 font-medium capitalize">{key}</div>
-                  <div className="text-xs text-gray-400">{TIER_HELP[key]}</div>
-                </td>
-                <td className="px-4 py-3">
-                  <Input
-                    id={`${key}-one`}
-                    aria-label={`${key} singular label`}
-                    value={draft[key].one}
-                    onChange={(e) => setField(key, 'one', e.target.value)}
-                    placeholder={DEFAULT_TIER_LABELS[key].one}
-                  />
-                </td>
-                <td className="px-4 py-3">
-                  <Input
-                    id={`${key}-many`}
-                    aria-label={`${key} plural label`}
-                    value={draft[key].many}
-                    onChange={(e) => setField(key, 'many', e.target.value)}
-                    placeholder={DEFAULT_TIER_LABELS[key].many}
-                  />
-                </td>
-              </tr>
-            ))}
+            {NESTING_KEYS.map(renderRow)}
+            <tr className="bg-gray-50/60">
+              <td colSpan={3} className="px-4 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                Optional grouping — sits beside the nesting tiers, not inside it
+              </td>
+            </tr>
+            {renderRow('complex')}
           </tbody>
         </table>
       </div>
